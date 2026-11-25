@@ -1,46 +1,51 @@
-# --- Local toolchain and environments (created by scripts/setup.sh) ---
+# Local toolchain, environments and caches
 .venv/
 .venv.bak-*/
 .tools/
 .tmp/
 __pycache__/
-*.pyc
+*.py[cod]
+*.egg-info/
 .pytest_cache/
-frontend/node_modules/
+node_modules/
+.cache/
+*.safetensors
+*.gguf
 
-# --- Built frontend (reproducible: `cd frontend && npm ci && npm run build`) ---
+# Built frontend (cd frontend && npm ci && npm run build)
 backend/static/workspace/
 
-# --- Private data: never commit ---
-# Instagram data export (saved posts, account and login information)
+# Private data: Instagram export, pipeline output (SQLite, Chroma, Neo4j, transcripts, conversations), checkpoints
 instagram-*/
 saved_posts.json
-# Pipeline output: SQLite job database, Chroma index, Neo4j data, transcripts, conversations, eval frames
 output/
-# Local source checkpoints
 checkpoints/
-# Credentials and local overrides (Neo4j password lives in .env.local)
+
+# Credentials and machine-specific configuration
 .env
 .env.*
+.env.local
 *.local
 *.local.json
 *.pem
 *.key
 
-# Evaluation datasets and reports built from the owner's saved Reels (Reel IDs, quotes, judgments).
-# The evaluation scripts still run locally against these files; see docs/EVALUATION.md.
+# Evaluation datasets, reports and superseded configurations built from the owner's saved Reels
 reports/
 fixtures/rag_questions*.json
 fixtures/search_queries.json
+fixtures/rag_answer_config_phase4c.json
 
-# --- Unused development artefacts (kept locally) ---
+# Unused local development artefacts
 extension/popup.html
 extension/popup.js
 extension/ui-next/manifest.previous.json
 extension/ui-next/manifest.next.json
 
-# --- Editor, OS and tool state ---
+# Editor, OS and tool state
 .claude/
+.vscode/
+.idea/
 .DS_Store
 *.log
 .backend.log
