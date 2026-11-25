@@ -44,21 +44,16 @@ reel videos video my saved mention mentions mentioned talk talks say says compar
 difference differ than with versus vs explain relationship related relate same both either one ones any more also
 prerequisites prerequisite learning learn learned can could would should i me you your there""".split())
 
-
 def db_path():
     return config.OUTPUT_DIR / "conversations.db"
-
 
 def connect():
     return db.connect(db_path(), SCHEMA, foreign_keys=True)
 
-
 def tx():
     return db.transaction(_lock, connect)
 
-
 _JSON = ("retrieval", "answer", "question_concepts", "cited_concepts", "cited_reels", "timing", "rewrite")
-
 
 def _row(r: sqlite3.Row) -> dict:
     d = dict(r)
@@ -67,7 +62,6 @@ def _row(r: sqlite3.Row) -> dict:
             d[k] = json.loads(d[k])
     return d
 
-
 def create(title: str | None = None) -> str:
     cid = uuid.uuid4().hex[:12]
     with tx() as con:
@@ -75,18 +69,15 @@ def create(title: str | None = None) -> str:
                     (cid, (title or "")[:80], db.utc_now(), db.utc_now()))
     return cid
 
-
 def exists(cid: str) -> bool:
     with connect() as con:
         return con.execute("SELECT 1 FROM conversations WHERE id=?", (cid,)).fetchone() is not None
-
 
 def list_conversations(limit: int = 50) -> list[dict]:
     with connect() as con:
         return [dict(r) for r in con.execute(
             """SELECT c.*, (SELECT COUNT(*) FROM turns t WHERE t.conversation_id=c.id) AS turns
                FROM conversations c ORDER BY updated_at DESC LIMIT ?""", (limit,))]
-
 
 def get(cid: str) -> dict | None:
     with connect() as con:
@@ -96,12 +87,10 @@ def get(cid: str) -> dict | None:
         turns = [_row(r) for r in con.execute("SELECT * FROM turns WHERE conversation_id=? ORDER BY seq", (cid,))]
     return {**dict(c), "turns": turns}
 
-
 def delete(cid: str) -> bool:
     with tx() as con:
         con.execute("DELETE FROM turns WHERE conversation_id=?", (cid,))
         return con.execute("DELETE FROM conversations WHERE id=?", (cid,)).rowcount == 1
-
 
 def delete_all() -> int:
     """Delete every conversation and its turns (the workspace's "Clear all"). Only conversations.db is touched;
@@ -109,7 +98,6 @@ def delete_all() -> int:
     with tx() as con:
         con.execute("DELETE FROM turns")
         return con.execute("DELETE FROM conversations").rowcount
-
 
 def add_turn(cid: str, question: str, **fields) -> int:
     with tx() as con:
@@ -121,19 +109,16 @@ def add_turn(cid: str, question: str, **fields) -> int:
         con.execute("UPDATE conversations SET updated_at=? WHERE id=?", (db.utc_now(), cid))
     return tid
 
-
 def update_turn(tid: int, **fields) -> None:
     sets = ", ".join(f"{k}=?" for k in fields) + ", updated_at=?"
     vals = [json.dumps(v) if k in _JSON and v is not None else v for k, v in fields.items()]
     with tx() as con:
         con.execute(f"UPDATE turns SET {sets} WHERE id=?", (*vals, db.utc_now(), tid))
 
-
 def get_turn(tid: int) -> dict | None:
     with connect() as con:
         r = con.execute("SELECT * FROM turns WHERE id=?", (tid,)).fetchone()
     return _row(r) if r else None
-
 
 def previous_turns(cid: str, n: int = 2) -> list[dict]:
     """The last n turns, most recent first."""
@@ -141,24 +126,20 @@ def previous_turns(cid: str, n: int = 2) -> list[dict]:
         return [_row(r) for r in con.execute(
             "SELECT * FROM turns WHERE conversation_id=? ORDER BY seq DESC LIMIT ?", (cid, n))]
 
-
 def expire_queued(reason: str = "the backend restarted before this answer was generated") -> int:
     """Startup: queued generations of a previous process are marked expired (visible), never silently lost."""
     with tx() as con:
         return con.execute("UPDATE turns SET status='expired', error=?, updated_at=? WHERE status='queued'",
                            (reason, db.utc_now())).rowcount
 
-
 # ---------------------------------------------------------------- follow-ups
 
 def is_followup(question: str) -> bool:
     return bool(_FOLLOWUP.search(question))
 
-
 # Phase 4C rewrite configuration (selected on dev data).
 BASE_DEFAULTS = {"referents": "v1", "clarify": False}   # clarify: Phase 4D disambiguation (v2 only)
 DEFAULTS = {**BASE_DEFAULTS, "referents": "v2", "clarify": True}   # Phase 4C/4D selection (fixtures/rag_answer_config.json)
-
 
 def referents(turns: list[dict]) -> list[dict]:
     """Allowed referents, most relevant first: concepts of the previous questions, then concepts mentioned in the
@@ -171,14 +152,11 @@ def referents(turns: list[dict]) -> list[dict]:
                     out.append({"key": c["key"], "name": c["name"], "from": src, "turn": t["seq"]})
     return out[:8]
 
-
 def _words(s: str) -> list[str]:
     return re.findall(r"[a-z0-9][a-z0-9+#.\-']*[a-z0-9+#]|[a-z0-9]", s.lower())
 
-
 def _allowed(question: str, refs: list[dict]) -> set[str]:
     return set(_words(question)) | {w for r in refs for w in _words(r["name"])} | _FUNCTION
-
 
 REWRITE_SYSTEM = ("You rewrite a follow-up question into a standalone question. You never answer it and never "
                   "add information.")
@@ -188,7 +166,6 @@ Names the follow-up may refer to (use only these to replace words like "it", "th
 {names}
 Return ONE line of JSON: {{"q": "<the follow-up rewritten as a standalone question>"}}
 Keep the user's wording and intent. Do not add any other names, facts or assumptions."""
-
 
 def rewrite(question: str, turns: list[dict], llm=None, allow_model: bool = True,
             timeout: float | None = None) -> dict:
@@ -224,7 +201,6 @@ def rewrite(question: str, turns: list[dict], llm=None, allow_model: bool = True
     out["rewrite_s"] = round(time.perf_counter() - t0, 4)
     return out
 
-
 # ---------------------------------------------------------------- Phase 4C rewriting (v2)
 # Recent user-named entities are a strong preference, not an absolute rule; concepts that merely appear in cited
 # passages are never substituted; ambiguity is never forced into a substitution — the user's own words are kept and
@@ -236,7 +212,6 @@ _OWN_SUBJECT = re.compile(r"\bthe\s+(?:[\w'’\-]+\s+){1,6}(?:reel|video)\b", re
 _TOPIC_CHANGE = re.compile(r"\b(switching topics?|change of topic|different (?:topic|question)|unrelated|new topic)\b",
                            re.I)
 
-
 def _question_referents(turns: list[dict]) -> list[dict]:
     out: list[dict] = []
     for t in turns:                                              # most recent first
@@ -245,12 +220,10 @@ def _question_referents(turns: list[dict]) -> list[dict]:
                 out.append({"key": c["key"], "name": c["name"], "turn": t["seq"]})
     return out
 
-
 _SINGULAR = re.compile(r"\b(it|its|this|that)\b(?!\s+(?:reel|video|creator|step|part|one)s?\b)", re.I)
 # Comparison/contrast wording means the user is talking about BOTH things named before → no clarification needed.
 _CONTRAST = re.compile(r"\b(?:compare[sd]?|comparison|other|both|versus|vs\.?|differ(?:s|ence|ent)?|between|each)\b", re.I)
 _STEP_REF = re.compile(r"\b(?:that|this|the same)\s+(?:step|part|stage|round|one)\b", re.I)
-
 
 def _rewrite_v2(question: str, turns: list[dict], out: dict) -> dict:
     q = _SCOPE_PREVIOUS.sub(" ", question) if out["scope_previous"] else question   # "which of them" → scoping
@@ -284,7 +257,6 @@ def _rewrite_v2(question: str, turns: list[dict], out: dict) -> dict:
             "retrieval_query": " ".join([question] + earlier), "boost": [c["key"] for c in cands[:3]],
             "reason": ("several possible referents" if len(cands) > 1 else
                        "no entity named in earlier questions" if not cands else "reference is not a simple pronoun")}
-
 
 def _model_rewrite(question, prev, refs, llm, timeout) -> dict:
     llm = llm or models.shared_llm()

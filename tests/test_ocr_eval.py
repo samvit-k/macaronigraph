@@ -8,10 +8,8 @@ import ocr_eval  # noqa: E402
 
 WORDS = {"engineer", "explains", "agent", "setup", "the", "time"}
 
-
 def seg(i, text):
     return {"id": i, "start": float(i), "end": float(i), "text": text}
-
 
 def test_informative_tokens_keep_acronyms_numbers_and_recurring_names():
     raw = [seg(0, "RAG and AI agent"), seg(1, "x86 vs ARM"), seg(2, "GPT-4 setup"),
@@ -19,7 +17,6 @@ def test_informative_tokens_keep_acronyms_numbers_and_recurring_names():
     info = ocr_eval.informative_tokens(raw, WORDS, spoken=set())
     assert {"rag", "ai", "x86", "arm", "4", "gpu", "vultr", "agent", "setup"} <= info
     assert "qzxv" not in info and "credits" not in info  # one-off non-word: not counted as information
-
 
 def test_retention_counts_technical_terms_not_just_dictionary_words():
     raw = [seg(0, "RAG pipeline x86"), seg(1, "RAG pipeline x86")]
@@ -30,12 +27,10 @@ def test_retention_counts_technical_terms_not_just_dictionary_words():
     full = ocr_eval.metrics([{"text": "RAG pipeline x86"}], info, WORDS, set())
     assert full["retention"] == 1.0
 
-
 def test_missing_wordlist_is_graceful(tmp_path):
     assert ocr_eval.load_dict(tmp_path / "nope") is None
     m = ocr_eval.metrics([{"text": "AI agent"}], {"ai"}, None, set())
     assert m["readable"] is None and m["garbled"] is None and m["retention"] == 1.0
-
 
 def test_missing_frames_reported_incomplete_and_nothing_evaluated_fails(capsys):
     def loader(rid):
@@ -46,7 +41,6 @@ def test_missing_frames_reported_incomplete_and_nothing_evaluated_fails(capsys):
     assert ocr_eval.report(results, missing, ["A", "B"], None, 0, None) == 1
     out = capsys.readouterr().out
     assert "INCOMPLETE" in out and "NOTHING EVALUATED" in out and "PROXY METRICS" not in out
-
 
 def test_partial_results_return_incomplete_code(capsys):
     fake = {"frames": 2, "raw": [], "filtered": [], "v1": [], "v2": [],

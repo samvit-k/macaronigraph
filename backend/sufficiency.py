@@ -37,10 +37,8 @@ other another one ones thing things get make way ways good best really need use 
 TAU_SIM = 0.55
 TAU_COV = 0.5
 
-
 def _stem(w: str) -> str:
     return w[:5] if w.isalpha() and len(w) > 5 else w
-
 
 def anchor_words(question: str) -> dict[str, str]:
     """stem → the question's own word (first occurrence)."""
@@ -53,10 +51,8 @@ def anchor_words(question: str) -> dict[str, str]:
         out.setdefault(_stem(w), w)
     return out
 
-
 def anchors(question: str) -> list[str]:
     return list(anchor_words(question))
-
 
 def signals(question: str, retrieval: dict) -> dict:
     sims = [s.get("similarity") for s in retrieval.get("sources", []) if s.get("similarity") is not None]
@@ -68,7 +64,6 @@ def signals(question: str, retrieval: dict) -> dict:
     return {"best_sim": round(max(sims), 4) if sims else None, "anchors": anc, "missing": missing,
             "missing_words": [aw[a] for a in missing],
             "coverage": round(1 - len(missing) / len(anc), 3) if anc else 1.0}
-
 
 def decide(mode: str, sig: dict, tau_sim: float = TAU_SIM, tau_cov: float = TAU_COV) -> str | None:
     """→ a reason to abstain without generating, or None."""

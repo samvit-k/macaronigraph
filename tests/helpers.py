@@ -8,12 +8,10 @@ from contextlib import contextmanager
 
 from backend import config, indexer, jobs, models
 
-
 def free_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
-
 
 @contextmanager
 def production_path_guard(isolated_output):
@@ -35,7 +33,6 @@ def production_path_guard(isolated_output):
         jobs.db_path, config.chroma_dir = real_db, real_chroma
         indexer.release_writer()
 
-
 def canonical_digest() -> str:
     with jobs.connect() as con:
         h = hashlib.sha256()
@@ -43,7 +40,6 @@ def canonical_digest() -> str:
             for row in con.execute(f"SELECT * FROM {t} ORDER BY rowid"):
                 h.update(repr(tuple(row)).encode())
         return h.hexdigest()
-
 
 @contextmanager
 def heavy_lock_held(label: str = "graph extraction"):

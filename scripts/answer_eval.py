@@ -98,7 +98,6 @@ CONFIGS.update({
             "rewrite": {"referents": "v2", "clarify": True}, "model": Q4B, "about": "D6 + claim verification (drop)"},
 })
 
-
 # ---------------------------------------------------------------- data
 
 def load(name: str, final: bool = False):
@@ -123,10 +122,8 @@ def load(name: str, final: bool = False):
     qs = json.loads(raw)["questions"]
     return [q for q in qs if split in (None, q.get("split"))], sha
 
-
 def turns_of(q):
     return q["turns"] if "turns" in q else [q]
-
 
 # ---------------------------------------------------------------- configuration
 
@@ -134,7 +131,6 @@ def apply(cfg: dict) -> None:
     answer.DEFAULTS.clear(); answer.DEFAULTS.update({**answer.BASE_DEFAULTS, **cfg.get("answer", {})})
     conversations.DEFAULTS.clear(); conversations.DEFAULTS.update({**conversations.BASE_DEFAULTS, **cfg.get("rewrite", {})})
     config.RAG_LLM = cfg.get("model", config.RAG_LLM)
-
 
 # ---------------------------------------------------------------- memory monitor
 
@@ -185,7 +181,6 @@ class Monitor:
                 "swapouts_delta": (s1 - self.swapouts0) if None not in (s1, self.swapouts0) else None,
                 "peak_rss_gb": round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1e9, 2)}
 
-
 # ---------------------------------------------------------------- packs
 
 def build_packs(qs) -> dict:  # Phase 4C/4D packs: frozen retrieval, no passage selection (applied per run)
@@ -196,7 +191,6 @@ def build_packs(qs) -> dict:  # Phase 4C/4D packs: frozen retrieval, no passage 
         r = rag.retrieve(q["q"], mode="hybrid")
         out[q["id"]] = r
     return out
-
 
 # ---------------------------------------------------------------- run
 
@@ -216,7 +210,6 @@ def _row(q, t, tid, question, standalone, rewrite, retrieval, out, wall):
             "verification": out.get("verification"), "deterministic": out.get("deterministic"),
             "passage_select": retrieval.get("passage_select"), "listing": t.get("listing"),
             "clarify": out.get("clarify")}
-
 
 def run(qs, packs: dict) -> list[dict]:
     from backend import ask
@@ -253,12 +246,10 @@ def run(qs, packs: dict) -> list[dict]:
         print(f"{rows[-1]['id']:8} {rows[-1]['status']:22} cited={rows[-1]['cited_reels']} {rows[-1]['wall_s']}s", flush=True)
     return rows
 
-
 # ---------------------------------------------------------------- automatic metrics (proxies)
 
 def _hit(p, text):
     return any(k in text for k in p.get("kw", []))
-
 
 def auto_metrics(rows: list[dict]) -> dict:
     ans = [r for r in rows if r["expect"] in ("answer", "qualify", "disambiguate")]
@@ -316,7 +307,6 @@ def auto_metrics(rows: list[dict]) -> dict:
         "passage_select_added": sum(len((r.get("passage_select") or {}).get("added") or []) for r in rows),
     }
 
-
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("cmd", choices=["packs", "run"])
@@ -349,7 +339,6 @@ def main(argv=None):
     if a.out:
         Path(a.out).parent.mkdir(parents=True, exist_ok=True)
         Path(a.out).write_text(text + "\n")
-
 
 if __name__ == "__main__":
     main()

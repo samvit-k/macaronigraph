@@ -38,7 +38,6 @@ OCR_TYPES = {"ocr", "ocr_title", "ocr_screen", "ocr_fragment"}
 TYPE_LABEL = {"transcript": "transcript", "caption": "caption"}
 MAX_TERM_WORDS = 5
 
-
 def detect(question: str) -> dict | None:
     """→ {kind: list|count|within, other: bool, term: str|None (None = pronoun, resolve from context)} or None."""
     q = " ".join((question or "").split())
@@ -54,7 +53,6 @@ def detect(question: str) -> dict | None:
         return {"kind": kind, "other": bool(m.groupdict().get("other")), "term": tail}
     return None
 
-
 def _variants(term: str) -> set[str]:
     camel = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", term)            # "LeetCode" → "Leet Code", "GitHub" → "Git Hub"
     if camel != term:
@@ -64,7 +62,6 @@ def _variants(term: str) -> set[str]:
     if t.endswith("'s"):
         out.add(t[:-2])
     return {v for v in out if v}
-
 
 def aliases(term: str, graph=None) -> tuple[list[str], str | None]:
     """Surface forms to search for. → (forms, note). Graph aliases only when the term links to exactly one concept
@@ -86,16 +83,13 @@ def aliases(term: str, graph=None) -> tuple[list[str], str | None]:
         note = f"graph aliases unavailable ({type(e).__name__})"
     return sorted(forms, key=lambda f: (-len(f), f)), note
 
-
 def _pattern(forms: list[str]) -> re.Pattern:
     return re.compile(r"(?<![A-Za-z0-9])(?:" + "|".join(re.escape(f) for f in forms) + r")(?![A-Za-z0-9])", re.I)
-
 
 def _corpus_counts() -> dict:
     with jobs.connect() as con:
         rows = con.execute("SELECT state, COUNT(*) FROM reels WHERE source='instagram' GROUP BY state").fetchall()
     return {r[0]: r[1] for r in rows}
-
 
 def search(forms: list[str]) -> dict:
     """Exhaustive literal search of the active collection (read-only). → {matches: {reel_id: [hit]}, searched,
@@ -130,18 +124,15 @@ def search(forms: list[str]) -> dict:
     return {"matches": matches, "searched": sorted(searched), "passages": n, "skipped_stale": sorted(stale - searched),
             "collection": name}
 
-
 def _rank(hit: dict) -> int:
     t = hit.get("content_type")
     return 0 if t == "transcript" else 1 if t == "caption" else 2
-
 
 def _snippet(hit: dict, width: int = 70) -> str:
     a, b = hit["span"]
     t = hit["text"]
     s, e = max(0, a - width), min(len(t), b + width)
     return ("…" if s else "") + " ".join(t[s:e].split()) + ("…" if e < len(t) else "")
-
 
 def answer(question: str, scope: dict | None = None, graph=None) -> tuple[dict, list[dict]] | None:
     """Deterministic answer for a listing/count question, or None if the question is not one (or the term cannot be

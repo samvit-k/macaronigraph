@@ -25,7 +25,6 @@ from . import config, evalframes, indexer, jobs, metadata, worker
 
 SOURCES = {"test": config.TEST_POSTS_PATH, "instagram": config.INSTAGRAM_POSTS_PATH}
 
-
 @lru_cache(maxsize=4)
 def _posts(source: str) -> dict[str, dict]:
     path = SOURCES[source]
@@ -33,10 +32,8 @@ def _posts(source: str) -> dict[str, dict]:
         raise HTTPException(404, f"source file not found: {path}")
     return {p["reel_id"]: p for p in metadata.load_posts(Path(path)) if p["reel_id"]}
 
-
 def _lookup(source: str, reel_id: str | None) -> dict | None:
     return _posts(source).get(reel_id) if source in SOURCES else None
-
 
 @asynccontextmanager
 async def lifespan(_app):
@@ -57,7 +54,6 @@ async def lifespan(_app):
     except Exception as e:  # noqa: BLE001
         print(f"[models] shutdown failed: {type(e).__name__}: {e}", file=sys.stderr)
 
-
 def _answers_call(fn: str):
     try:
         from . import ask
@@ -65,7 +61,6 @@ def _answers_call(fn: str):
     except Exception as e:  # noqa: BLE001 — answers are optional; retrieval and the backend keep working
         print(f"[answers] {fn} failed: {type(e).__name__}: {e}", file=sys.stderr)
         return None
-
 
 def _graph_call(fn: str):
     try:
@@ -75,11 +70,9 @@ def _graph_call(fn: str):
         print(f"[graph] {fn} failed: {type(e).__name__}: {e}", file=sys.stderr)
         return None
 
-
 app = FastAPI(title="MacaroniGraph", version=config.PIPELINE_VERSION, lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origin_regex=r"chrome-extension://.*", allow_methods=["*"],
                    allow_headers=["*"])
-
 
 @app.get("/api/health")
 def health():
@@ -90,14 +83,12 @@ def health():
             "backlog": len(worker.pending_jobs()), "quarantined": len(worker.dead_jobs()),
             "index": _index_summary()}
 
-
 def _index_summary() -> dict:
     try:
         return {"active": indexer.active_collection(), "build": (indexer._meta_json(indexer.K_BUILD) or {}).get("state"),
                 "running": indexer._state["running"], "busy": indexer._state["busy"]}
     except Exception as e:  # noqa: BLE001 — health must never fail because of the index
         return {"error": str(e)}
-
 
 @app.get("/api/session")
 def session(source: str = "test", limit: int = 3, offset: int = 0, mode: str = "pending"):
@@ -118,27 +109,22 @@ def session(source: str = "test", limit: int = 3, offset: int = 0, mode: str = "
     (sessions / f"{sid}.json").write_text(json.dumps(out, indent=1))
     return out
 
-
 @app.post("/api/session/{session_id}/heartbeat")
 def session_heartbeat(session_id: str):
     return {"ok": jobs.heartbeat(session_id)}
 
-
 @app.post("/api/session/{session_id}/finish")
 def session_finish(session_id: str, reason: str = "finished"):
     return {"ok": True, "released": jobs.finish_session(session_id, reason)}
-
 
 @app.get("/api/session/{session_id}/status")
 def session_status(session_id: str):
     """Capture finished? Uploads still queued/processing? (the extension waits for queued == 0)"""
     return {**jobs.session_progress(session_id), "backlog": len(worker.pending_jobs())}
 
-
 @app.get("/api/status")
 def job_status(source: str | None = None):
     return {**jobs.status(source), "backlog": len(worker.pending_jobs()), "quarantined": len(worker.dead_jobs())}
-
 
 @app.post("/api/process")
 def process(meta: str = Form(...), audio: UploadFile | None = File(None),
@@ -180,7 +166,6 @@ def process(meta: str = Form(...), audio: UploadFile | None = File(None),
         raise HTTPException(500, "capture spooled but could not be persisted; it will be retried")
     return out
 
-
 @app.get("/api/results")
 def results(session_id: str | None = None):
     """Attempt history (from SQLite), optionally for one session."""
@@ -189,7 +174,6 @@ def results(session_id: str | None = None):
         rows = con.execute(q + (" WHERE session_id=?" if session_id else "") + " ORDER BY attempt_id",
                            (session_id,) if session_id else ()).fetchall()
     return [{**dict(r), "errors": json.loads(r["errors"] or "[]")} for r in rows]
-
 
 # ---------- Phase 3: semantic search ----------
 
@@ -208,11 +192,9 @@ def search(q: str = Query(..., min_length=1, max_length=1000), k: int = Query(10
     except indexer.IndexNotReady as e:
         raise HTTPException(503, str(e))
 
-
 @app.get("/api/index/status")
 def index_status():
     return indexer.status()
-
 
 @app.post("/api/index/sync")
 def index_sync(rebuild: bool = False, wait: bool = False):
@@ -221,7 +203,6 @@ def index_sync(rebuild: bool = False, wait: bool = False):
         return indexer.request_sync(rebuild=rebuild, wait=wait)
     except indexer.WriterBusy as e:
         raise HTTPException(409, str(e))
-
 
 # ---------- Phase 4A: knowledge graph (optional; 503 when Neo4j is offline) ----------
 
@@ -236,18 +217,15 @@ def _graph_store():
     finally:
         store.close()
 
-
 def _graph(fn, *args, **kw):
     from .graph import queries as gq
     with _graph_store() as store:
         return getattr(gq, fn)(store, *args, **kw)
 
-
 @app.get("/api/graph/status")
 def graph_status():
     from .graph import queries as gq
     return gq.status()
-
 
 @app.post("/api/graph/sync")
 def graph_sync(force: bool = False, wait: bool = False):
@@ -255,7 +233,6 @@ def graph_sync(force: bool = False, wait: bool = False):
     processing are idle, unless force=1. wait=1 runs it now (or reports busy)."""
     from .graph import sync as gs
     return gs.request_sync(force=force, wait=wait)
-
 
 @app.get("/api/graph/request/{request_id}")
 def graph_request(request_id: int):
@@ -265,31 +242,25 @@ def graph_request(request_id: int):
         raise HTTPException(404, "unknown request id")
     return r
 
-
 @app.get("/api/graph/verify")
 def graph_verify():
     return _graph("verify")
-
 
 @app.get("/api/graph/reel/{reel_id}")
 def graph_reel(reel_id: str):
     return _graph("reel_concepts", reel_id)
 
-
 @app.get("/api/graph/concept")
 def graph_concept(name: str = Query(..., min_length=1)):
     return _graph("concept_reels", name)
-
 
 @app.get("/api/graph/shared")
 def graph_shared(min_reels: int = Query(2, ge=1), limit: int = Query(50, ge=1, le=500)):
     return _graph("shared", min_reels, limit)
 
-
 @app.get("/api/graph/between")
 def graph_between(a: str = Query(..., min_length=1), b: str = Query(..., min_length=1), include_rejected: bool = False):
     return _graph("between", a, b, include_rejected=include_rejected)
-
 
 # ---------- Phase 5: read-only views for the MacaroniGraph workspace (additive; see backend/graph/view.py) ----------
 
@@ -301,13 +272,11 @@ def _view(fn, *args, **kw):
     except ValueError as e:
         raise HTTPException(400, str(e))
 
-
 @app.get("/api/graph/overview")
 def graph_overview(min_reels: int = Query(2, ge=1, le=50), limit_concepts: int = Query(150, ge=1, le=1000),
                    reel_offset: int = Query(0, ge=0), reel_limit: int = Query(200, ge=1, le=1000)):
     return _view("overview", min_reels=min_reels, limit_concepts=limit_concepts, reel_offset=reel_offset,
                  reel_limit=reel_limit)
-
 
 @app.get("/api/graph/neighborhood")
 def graph_neighborhood(kind: str = Query(..., pattern="^(reel|concept)$"), id: str = Query(..., min_length=1),
@@ -317,16 +286,13 @@ def graph_neighborhood(kind: str = Query(..., pattern="^(reel|concept)$"), id: s
         raise HTTPException(404, f"unknown {kind}: {id}")
     return r
 
-
 @app.get("/api/graph/search")
 def graph_search(q: str = Query(..., min_length=1, max_length=200), limit: int = Query(20, ge=1, le=100)):
     return _view("search", q, limit=limit)
 
-
 @app.get("/api/graph/evidence")
 def graph_evidence(a: str = Query(..., min_length=1), b: str = Query(..., min_length=1), include_rejected: bool = False):
     return _graph("evidence", a, b, include_rejected=include_rejected)
-
 
 # ---------- Phase 4B: retrieval + local answers ----------
 
@@ -337,9 +303,7 @@ class AskBody(BaseModel):
     generate: bool = True
     options: dict | None = None
 
-
 _ASK_OPTIONS = {"co_mention", "relations", "max_sources"}      # public knobs; tuning parameters stay internal
-
 
 @app.post("/api/ask")
 def ask_endpoint(body: AskBody):
@@ -357,7 +321,6 @@ def ask_endpoint(body: AskBody):
     except rag.RetrievalUnavailable as e:
         raise HTTPException(503, str(e))
 
-
 @app.get("/api/ask/{request_id}")
 def ask_request(request_id: int):
     from . import ask
@@ -366,12 +329,10 @@ def ask_request(request_id: int):
         raise HTTPException(404, "unknown request id")
     return r
 
-
 @app.get("/api/conversations")
 def conversations_list():
     from . import conversations
     return conversations.list_conversations()
-
 
 @app.get("/api/conversations/{conversation_id}")
 def conversation_get(conversation_id: str):
@@ -381,13 +342,11 @@ def conversation_get(conversation_id: str):
         raise HTTPException(404, "unknown conversation")
     return {**{k: v for k, v in c.items() if k != "turns"}, "turns": [ask.response(t) for t in c["turns"]]}
 
-
 @app.delete("/api/conversations")
 def conversations_clear():
     """Phase 5 (additive): delete ALL conversations, including the one currently open. Reel data is untouched."""
     from . import conversations
     return {"deleted": conversations.delete_all()}
-
 
 @app.delete("/api/conversations/{conversation_id}")
 def conversation_delete(conversation_id: str):
@@ -396,12 +355,10 @@ def conversation_delete(conversation_id: str):
         raise HTTPException(404, "unknown conversation")
     return {"deleted": conversation_id}
 
-
 @app.get("/app")
 @app.get("/app/{path:path}")
 def legacy_app_redirect(path: str = ""):
     return RedirectResponse("/workspace/")
-
 
 # ---------- Phase 5: MacaroniGraph workspace + local welcome page ----------
 
@@ -415,18 +372,15 @@ EXTENSION_FILES = (
     "ui/icons/icon16.png", "ui/icons/icon32.png", "ui/icons/icon48.png", "ui/icons/icon128.png",
 )
 
-
 def _workspace_file(name: str) -> Path:
     path = WORKSPACE_DIR / name
     if not path.is_file():
         raise HTTPException(503, "the MacaroniGraph workspace is not built yet: run `npm ci && npm run build` in frontend/")
     return path
 
-
 @app.get("/welcome", response_class=HTMLResponse)
 def welcome():
     return FileResponse(_workspace_file("welcome.html"), media_type="text/html")
-
 
 @app.get("/welcome/extension.zip")
 def extension_zip():
@@ -440,15 +394,12 @@ def extension_zip():
     return Response(buf.getvalue(), media_type="application/zip",
                     headers={"Content-Disposition": 'attachment; filename="macaronigraph-extension.zip"'})
 
-
 @app.get("/workspace")
 def workspace_redirect():
     return RedirectResponse("/workspace/")
 
-
 if WORKSPACE_DIR.is_dir():
     app.mount("/workspace", StaticFiles(directory=str(WORKSPACE_DIR), html=True), name="workspace")
-
 
 # ---------- start page + permitted test media ----------
 
@@ -460,7 +411,6 @@ def index():
 <p>This tab is the <b>worker tab</b>. Click the extension icon, choose a source, then <b>Start Processing</b>.
 The extension captures <i>this</i> tab and navigates it through the queue.</p></body>"""
 
-
 @app.get("/test-media/page/{rid}", response_class=HTMLResponse)
 def test_page(rid: str):
     if not (config.TEST_MEDIA_DIR / f"{rid}.mp4").is_file():
@@ -470,7 +420,6 @@ def test_page(rid: str):
 <body style="margin:0;background:#000;display:flex;justify-content:center;align-items:center;height:100vh">
 <video src="/test-media/file/{rid}.mp4" autoplay muted playsinline loop preload="auto"
        style="height:100vh;aspect-ratio:9/16"></video></body>"""
-
 
 @app.get("/test-media/file/{name}")
 def test_file(name: str):

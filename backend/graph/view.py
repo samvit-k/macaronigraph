@@ -28,10 +28,8 @@ _ASSERTIONS = f"""
            a.quote AS quote, a.confidence AS confidence
     ORDER BY id"""
 
-
 def _assertions(store: Neo4jStore, where: str = "true", **params) -> list[dict]:
     return store.run(_ASSERTIONS.format(where=where), **params)
-
 
 def _concept_rows(store: Neo4jStore, keys: list[str]) -> list[dict]:
     """Concepts by key with their GLOBAL Reel count (how many Reels mention them)."""
@@ -43,11 +41,9 @@ def _concept_rows(store: Neo4jStore, keys: list[str]) -> list[dict]:
         RETURN c.key AS key, c.name AS name, c.type AS type, coalesce(c.aliases, []) AS aliases,
                count(DISTINCT r) AS n_reels""", keys=keys)
 
-
 def _reel_fields() -> str:
     return ("r.reel_id AS reel_id, r.owner AS owner, r.caption_short AS caption, r.source_url AS source_url, "
             "r.saved_at AS saved_at")
-
 
 def overview(store: Neo4jStore, min_reels: int = 2, limit_concepts: int = 150, reel_offset: int = 0,
              reel_limit: int = 200) -> dict:
@@ -85,7 +81,6 @@ def overview(store: Neo4jStore, min_reels: int = 2, limit_concepts: int = 150, r
             "totals": {**totals, "reels_shown": len(reels), "concepts_shown": len(concepts),
                        "reel_offset": reel_offset, "min_reels": min_reels},
             "note": "Mentions mean a Reel names the concept; two Reels mentioning one concept is not a relationship."}
-
 
 def neighborhood(store: Neo4jStore, kind: str, node_id: str, limit: int = 200) -> dict:
     """One node's direct neighborhood with evidence excerpts (for expansion and the inspector)."""
@@ -126,7 +121,6 @@ def neighborhood(store: Neo4jStore, kind: str, node_id: str, limit: int = 200) -
                 "mentions": [{"reel_id": r["reel_id"], "concept_key": c["key"], "passages": r["passages"]} for r in reels],
                 "assertions": assertions}
     raise ValueError("kind must be 'reel' or 'concept'")
-
 
 def search(store: Neo4jStore, q: str, limit: int = 20) -> dict:
     """Case-insensitive search: concept names/aliases (prefix matches first, then by Reel count) and Reels by

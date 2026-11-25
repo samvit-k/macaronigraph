@@ -11,13 +11,11 @@ ROUNDS = [FILLER + " Round 1 is a paid two-day take-home with an open brief.",
           FILLER + " Round 2 is hands-on service design with queues and caches.",
           FILLER + " Round 3 covers team values and communication."]
 
-
 def add_reel(rid, texts):
     segs = [seg(i * 20, i * 20 + 19, t) for i, t in enumerate(texts)]
     rec = make_record(segs, [], rid=rid, caption=f"About {rid}")
     rec.update(session_id=f"instagram-{rid}", processed_at="2026-11-23T00:00:01+00:00", errors=[], warnings=[])
     return jobs.record_attempt(rec, export=False)
-
 
 @pytest.fixture
 def idx(isolated_output, monkeypatch):
@@ -31,14 +29,12 @@ def idx(isolated_output, monkeypatch):
     yield indexer.get_collection(indexer.active_collection())
     indexer.release_writer()
 
-
 def pack_with(col, chunk_id):
     got = col.get(ids=[chunk_id], include=["documents", "metadatas"])
     md = got["metadatas"][0]
     return {"question": "q", "sources": [{"sid": "S1", "chunk_id": chunk_id, "reel_id": md["reel_id"],
                                           "text": got["documents"][0], "content_type": md["content_type"],
                                           "similarity": 0.5}]}
-
 
 def test_adds_the_answer_bearing_passage_of_a_reel_already_in_the_pack(idx):
     ids = sorted(i for i in idx.get(where={"reel_id": "H"})["ids"] if ":transcript:" in i)
@@ -51,7 +47,6 @@ def test_adds_the_answer_bearing_passage_of_a_reel_already_in_the_pack(idx):
     assert {s["reel_id"] for s in r["sources"]} == {"H"}                          # no new Reels
     assert added[0]["channels"][0]["type"] == "same_reel_passage"
 
-
 def test_caps_and_no_lexical_match_means_nothing_added(idx):
     ids = sorted(i for i in idx.get(where={"reel_id": "H"})["ids"] if ":transcript:" in i)
     r = evidence.select("Quantum chromodynamics lattice?", pack_with(idx, ids[0]), {"sim_floor": 0.0})
@@ -59,14 +54,12 @@ def test_caps_and_no_lexical_match_means_nothing_added(idx):
     r = evidence.select("round", pack_with(idx, ids[0]), {"sim_floor": 0.0, "max_add": 1})
     assert len(r["passage_select"]["added"]) <= 1
 
-
 def test_stale_reels_are_not_used(idx):
     ids = sorted(i for i in idx.get(where={"reel_id": "H"})["ids"] if ":transcript:" in i)
     with jobs.tx() as con:
         con.execute("UPDATE index_state SET content_hash='stale' WHERE reel_id='H'")
     r = evidence.select("What happens in round 2?", pack_with(idx, ids[0]), {"sim_floor": 0.0})
     assert r["passage_select"]["added"] == []
-
 
 def test_empty_pack_is_returned_unchanged():
     r = evidence.select("anything", {"sources": []})

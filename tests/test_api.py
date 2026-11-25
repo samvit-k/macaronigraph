@@ -12,7 +12,6 @@ from backend.validation import ocr_card_recall, wer
 
 client = TestClient(app)
 
-
 def post_clip(rid: str, **meta_extra):
     audio, frames, walls = clip_upload(rid)
     gt = ground_truth()[rid]
@@ -26,15 +25,12 @@ def post_clip(rid: str, **meta_extra):
     assert r.status_code == 200, r.text
     return r.json()
 
-
 def assert_no_spooled_media():
     assert worker.pending_jobs() == [] and not list(worker.spool_dir().glob(".incoming-*"))
-
 
 def records():
     """Attempt history (one line per processing attempt)."""
     return jobs.read_jsonl(jobs.attempts_jsonl())
-
 
 @pytest.mark.parametrize("rid", ["TESTCLIP01", "TESTCLIP02", "TESTCLIP03"])
 def test_speech_clip_ok_and_matches_ground_truth(isolated_output, rid):
@@ -54,7 +50,6 @@ def test_speech_clip_ok_and_matches_ground_truth(isolated_output, rid):
             assert c["start"] - 1.0 <= seg["start"] <= c["end"] and seg["end"] <= c["end"] + 1.0
     assert_no_spooled_media()  # temp media deleted
 
-
 def test_burned_in_subtitles_merge_into_one_segment_with_provenance(isolated_output):
     assert post_clip("TESTSUBS")["status"] == "ok"
     rec = records()[-1]
@@ -68,7 +63,6 @@ def test_burned_in_subtitles_merge_into_one_segment_with_provenance(isolated_out
     assert {p["ocr_kind"] for p in ocr_passages} == {"text", "subtitle"} and len(ocr_passages) == 2
     assert wer(gt["script"], rec["transcript"]["text"]) < 0.15
 
-
 def test_silent_and_music_clips_ok_no_speech(isolated_output):
     assert post_clip("TESTSILENT")["status"] == "ok_no_speech"
     assert post_clip("TESTMUSIC")["status"] == "ok_no_speech"
@@ -76,14 +70,12 @@ def test_silent_and_music_clips_ok_no_speech(isolated_output):
         assert rec["transcript"]["text"] == ""
         assert rec["ocr"]["segments"]
 
-
 def test_unavailable_item_failed(isolated_output):
     meta = {"reel_id": "TESTMISSING", "source": "test", "playback": "unavailable", "playback_detail": "Page not found"}
     r = client.post("/api/process", data={"meta": json.dumps(meta)})
     assert r.json()["status"] == "failed"
     rec = records()[-1]
     assert rec["transcript"] is None and rec["ocr"] is None and rec["errors"] == ["unavailable: Page not found"]
-
 
 def test_empty_upload_is_not_success(isolated_output):
     meta = {"reel_id": "TESTCLIP01", "source": "test", "playback": "ok", "expected_s": 12, "captured_s": 12,
@@ -93,13 +85,11 @@ def test_empty_upload_is_not_success(isolated_output):
     assert r.json()["status"] == "failed"
     assert_no_spooled_media()
 
-
 def test_session_queue_and_404_page(isolated_output):
     s = client.get("/api/session", params={"source": "test", "limit": 3}).json()
     assert [i["reel_id"] for i in s["items"]] == ["TESTCLIP01", "TESTCLIP02", "TESTCLIP03"]
     assert client.get("/test-media/page/TESTMISSING").status_code == 404
     assert client.get("/test-media/file/../../backend/app.py").status_code == 404
-
 
 def test_source_json_unchanged(isolated_output):
     before = hashlib.sha256(config.TEST_POSTS_PATH.read_bytes()).hexdigest()

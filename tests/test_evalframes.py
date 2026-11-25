@@ -10,16 +10,13 @@ from conftest import PLAY_WALL, clip_upload
 
 FRAMES = [(0.0, b"\xff\xd8jpeg0"), (1.0, b"\xff\xd8jpeg1")]
 
-
 def jpgs():
     return list(evalframes.eval_dir().rglob("*.jpg")) if evalframes.eval_dir().exists() else []
-
 
 def test_disabled_by_default_writes_nothing(isolated_output):
     assert evalframes.selection() == []
     assert evalframes.save("R1", "ig-a", FRAMES, 1.0, None) is None
     assert jpgs() == []
-
 
 def test_only_selected_reels_are_saved(isolated_output):
     evalframes.enable(["R1"])
@@ -28,7 +25,6 @@ def test_only_selected_reels_are_saved(isolated_output):
     assert d is not None and len(jpgs()) == 2
     frames, meta = evalframes.load("R1")
     assert [t for t, _ in frames] == [0.0, 1.0] and meta["transcript_text"] == "hi"
-
 
 def test_selection_is_capped(isolated_output):
     with pytest.raises(ValueError):
@@ -39,7 +35,6 @@ def test_selection_is_capped(isolated_output):
     evalframes.eval_dir().mkdir(parents=True)
     (evalframes.eval_dir() / "selection.json").write_text(json.dumps({"reel_ids": [f"R{i}" for i in range(9)]}))
     assert len(evalframes.selection()) == evalframes.MAX_SELECTED
-
 
 @pytest.mark.parametrize("bad", ["../etc", "/abs", "a/b", "..", "x" * 65, "", "r\x00", "R 1", "R1;rm"])
 def test_unsafe_ids_rejected(isolated_output, bad):
@@ -52,19 +47,16 @@ def test_unsafe_ids_rejected(isolated_output, bad):
         evalframes.load(bad)
     assert all(evalframes.eval_dir().resolve() in p.resolve().parents for p in jpgs())
 
-
 def test_unsafe_ids_in_selection_file_are_ignored(isolated_output):
     evalframes.eval_dir().mkdir(parents=True)
     (evalframes.eval_dir() / "selection.json").write_text(json.dumps({"reel_ids": ["../../x", "OK1"]}))
     assert evalframes.selection() == ["OK1"]
-
 
 def test_purge_deletes_everything_and_disables(isolated_output):
     evalframes.enable(["R1"])
     evalframes.save("R1", "ig-a", FRAMES, 1.0, None)
     assert evalframes.purge() == 2
     assert not evalframes.eval_dir().exists() and evalframes.selection() == []
-
 
 def _process(client, rid, sid):
     audio, frames, walls = clip_upload(rid)
@@ -74,7 +66,6 @@ def _process(client, rid, sid):
     files = [("audio", ("a.webm", audio, "audio/webm"))] + [("frames", (f"f{i}.jpg", f, "image/jpeg"))
                                                              for i, f in enumerate(frames)]
     return client.post("/api/process", data={"meta": json.dumps(meta)}, files=files).json()
-
 
 def test_normal_processing_never_stores_frames_but_selected_does(isolated_output):
     client = TestClient(app)

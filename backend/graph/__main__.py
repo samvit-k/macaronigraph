@@ -20,10 +20,8 @@ from . import queries as q
 from . import sync as gs
 from .store import GraphOffline, Neo4jStore
 
-
 def _print(obj) -> None:
     print(json.dumps(obj, indent=1, ensure_ascii=False, default=str))
-
 
 def candidates(store: Neo4jStore, threshold: float = 0.9) -> list[dict]:
     """Concept-name pairs whose Qwen3 embeddings are very similar. Suggestions for aliases.json only — the graph
@@ -44,7 +42,6 @@ def candidates(store: Neo4jStore, threshold: float = 0.9) -> list[dict]:
                 out.append({"a": rows[i]["name"], "b": rows[j]["name"], "similarity": round(float(sims[i, j]), 3)})
     return sorted(out, key=lambda x: -x["similarity"])
 
-
 def _sync(store, args):
     force = "--force" in args
     from .. import indexer
@@ -54,12 +51,10 @@ def _sync(store, args):
               file=sys.stderr)
     _print(gs.sync(store=store, allow_extract=force or busy is None, force=force))
 
-
 def _verify(store, args):
     v = q.verify(store)
     _print(v)
     return 0 if v["ok"] else 1
-
 
 def _review(store, args):
     a = store.run("MATCH (a:Assertion {id: $id}) RETURN a.subject_key AS s, a.predicate AS p, "
@@ -73,7 +68,6 @@ def _review(store, args):
         _print({"review": args[1], "reel_id": rid, "applied": gs.sync(store=store, only=[rid], allow_extract=False)})
     except gs.SyncBusy as e:
         _print({"review": args[1], "reel_id": rid, "applied": False, "note": f"{e}; applied on the next sync"})
-
 
 # command -> (argument check, handler(store, args) -> exit code or None)
 COMMANDS = {
@@ -90,7 +84,6 @@ COMMANDS = {
     "review": (lambda a: len(a) >= 2 and a[1] in ("accept", "reject"), _review),
     "candidates": (lambda a: True, lambda s, a: _print(candidates(s, float(a[0]) if a else 0.9))),
 }
-
 
 def main(argv: list[str]) -> int:
     cmd, args = (argv[1] if len(argv) > 1 else "status"), argv[2:]
@@ -109,7 +102,6 @@ def main(argv: list[str]) -> int:
         return 4
     finally:
         store.close()
-
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv))

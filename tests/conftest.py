@@ -25,10 +25,8 @@ PRODUCTION_OUTPUT = {(ROOT / "output").resolve(), Path(config.OUTPUT_DIR).resolv
 PRODUCTION_NEO4J = {"uri": config.NEO4J_URI, "password": config.NEO4J_PASSWORD}
 SESSION_DIR = Path(tempfile.mkdtemp(prefix="reel-tests-"))
 
-
 class ProductionAccess(AssertionError):
     pass
-
 
 def _under_production(path) -> bool:
     s = str(path)
@@ -39,15 +37,12 @@ def _under_production(path) -> bool:
     p = Path(s).resolve()
     return any(p == d or d in p.parents for d in PRODUCTION_OUTPUT)
 
-
 _real_sqlite_connect = sqlite3.connect
-
 
 def _guarded_sqlite_connect(database, *args, **kwargs):
     if _under_production(database):
         raise ProductionAccess(f"test tried to open a production database: {database}")
     return _real_sqlite_connect(database, *args, **kwargs)
-
 
 sqlite3.connect = _guarded_sqlite_connect
 config.OUTPUT_DIR = SESSION_DIR / "out"
@@ -60,13 +55,11 @@ from backend.graph import store as _graph_store  # noqa: E402
 
 _real_driver = _graph_store.Neo4jStore.driver
 
-
 def _guarded_driver(self):
     if self.uri == PRODUCTION_NEO4J["uri"] or (PRODUCTION_NEO4J["password"]
                                                and self.password == PRODUCTION_NEO4J["password"]):
         raise ProductionAccess(f"test tried to connect to the production Neo4j ({self.uri})")
     return _real_driver(self)
-
 
 _graph_store.Neo4jStore.driver = _guarded_driver
 
@@ -76,12 +69,10 @@ import chromadb  # noqa: E402
 
 _real_persistent_client = chromadb.PersistentClient
 
-
 def _guarded_persistent_client(path=None, *args, **kwargs):
     if path is None or _under_production(path):
         raise ProductionAccess(f"test tried to open a production Chroma directory: {path}")
     return _real_persistent_client(path, *args, **kwargs)
-
 
 chromadb.PersistentClient = _guarded_persistent_client
 
@@ -89,19 +80,15 @@ chromadb.PersistentClient = _guarded_persistent_client
 # so a test can never leave anything behind in the real data folder.
 _real_mkdir = Path.mkdir
 
-
 def _guarded_mkdir(self, *args, **kwargs):
     if _under_production(self):
         raise ProductionAccess(f"test tried to create a production directory: {self}")
     return _real_mkdir(self, *args, **kwargs)
 
-
 Path.mkdir = _guarded_mkdir
-
 
 def ground_truth() -> dict:
     return json.loads(config.TEST_GROUND_TRUTH.read_text())
-
 
 def clip_upload(rid: str, every_s: float = 1.0) -> tuple[bytes | None, list[bytes], list[int]]:
     """Simulate what the extension uploads for a test clip: webm/opus audio + 1 fps JPEG frames."""
@@ -114,7 +101,6 @@ def clip_upload(rid: str, every_s: float = 1.0) -> tuple[bytes | None, list[byte
     frames = [b"\xff\xd8" + p for p in raw.split(b"\xff\xd8")[1:]]
     walls = [PLAY_WALL + int((i * every_s + every_s / 2) * 1000) for i in range(len(frames))]
     return audio, frames, walls
-
 
 @pytest.fixture(autouse=True)
 def _no_real_local_llm(monkeypatch):
@@ -130,12 +116,10 @@ def _no_real_local_llm(monkeypatch):
     monkeypatch.setattr(models, "_shared", None)
     monkeypatch.setattr(models, "_llms", {})
 
-
 @pytest.fixture(autouse=True)
 def _sync_processing(monkeypatch):
     """Tests process uploads inline (same worker code path); async behaviour has dedicated tests."""
     monkeypatch.setattr(config, "ASYNC_PROCESSING", False)
-
 
 @pytest.fixture
 def isolated_output(tmp_path, monkeypatch):

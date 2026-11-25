@@ -17,7 +17,6 @@ from test_rag_retrieve import FakeGraph
 
 client = TestClient(app)          # no lifespan: background threads are not started
 
-
 class AnswerLLM:
     """Cites the first source with its first words; records prompts; answers rewrite requests if configured."""
 
@@ -32,7 +31,6 @@ class AnswerLLM:
         sid, text = re.search(r'<source id="(S\d+)"[^>]*>\n(.*?)\n</source>', user, re.S).groups()
         return json.dumps({"s": [{"t": "The Reel says " + " ".join(text.split()[:6]) + ".", "c": [sid],
                                   "k": "src"}]}), {"finish_reason": "stop"}
-
 
 @pytest.fixture(autouse=True)
 def env(isolated_output, monkeypatch):
@@ -51,15 +49,12 @@ def env(isolated_output, monkeypatch):
     yield llm
     indexer.release_writer()
 
-
 def capture_on():
     jobs.create_session("instagram-live", "instagram", 0)
-
 
 def capture_off():
     with jobs.tx() as con:
         con.execute("UPDATE sessions SET finished_at = 1")
-
 
 # ---------------------------------------------------------------- API basics
 
@@ -73,35 +68,29 @@ def test_hybrid_with_neo4j_offline_falls_back_to_vector_and_still_answers(env):
         assert c["sid"] in cited and c["chunk_id"] == cited[c["sid"]]["chunk_id"] and c["source_url"]
     assert set(r["timing"]) == {"retrieval", "rewrite_s", "generation"} and r["timing"]["generation"]["generate_s"] >= 0
 
-
 def test_retrieval_only_when_generation_is_not_requested(env):
     r = client.post("/api/ask", json={"question": "How do CUDA kernels work?", "generate": False}).json()
     assert r["status"] == "retrieval_only" and r["sources"] and r["answer"]["status"] == "unavailable"
     assert env.prompts == []
-
 
 @pytest.mark.parametrize("body,code", [({"question": "x", "mode": "magic"}, 400), ({"question": ""}, 422),
                                        ({"question": "x", "conversation_id": "nope"}, 400)])
 def test_bad_requests(body, code):
     assert client.post("/api/ask", json=body).status_code == code
 
-
 def test_unknown_request_and_conversation_are_404():
     assert client.get("/api/ask/999999").status_code == 404
     assert client.get("/api/conversations/nope").status_code == 404
     assert client.delete("/api/conversations/nope").status_code == 404
 
-
 def test_no_index_is_503(monkeypatch):
     monkeypatch.setattr(indexer, "active_collection", lambda: None)
     assert client.post("/api/ask", json={"question": "CUDA?"}).status_code == 503
-
 
 def test_legacy_app_urls_redirect_to_the_workspace():
     for path in ("/app", "/app/", "/app/chat.js"):
         r = client.get(path, follow_redirects=False)
         assert r.status_code == 307 and r.headers["location"] == "/workspace/"
-
 
 def test_conversation_endpoints_roundtrip(env):
     r = client.post("/api/ask", json={"question": "How do CUDA kernels work?"}).json()
@@ -109,7 +98,6 @@ def test_conversation_endpoints_roundtrip(env):
     assert [t["question"] for t in c["turns"]] == ["How do CUDA kernels work?"]
     assert any(x["id"] == r["conversation_id"] for x in client.get("/api/conversations").json())
     assert client.delete(f"/api/conversations/{r['conversation_id']}").status_code == 200
-
 
 # ---------------------------------------------------------------- deferral, queue, worker
 
@@ -130,13 +118,11 @@ def test_capture_defers_generation_then_the_queue_answers_with_the_standalone_qu
     assert done["standalone_query"] == "Which other Reels mention CUDA?"
     assert "QUESTION: Which other Reels mention CUDA?" in env.prompts[n]  # generated for the standalone query
 
-
 def test_model_busy_beyond_the_wait_defers_instead_of_failing(env):
     with heavy_lock_held():
         r = ask.ask("How do CUDA kernels work?", llm=env)
         assert r["status"] == "queued" and "graph extraction" in r["answer"]["reason"]
     assert ask.process_one(llm=env) == r["request_id"] and ask.request_status(r["request_id"])["status"] == "ok"
-
 
 def test_queue_capacity_is_reported_not_silently_dropped(env, monkeypatch):
     monkeypatch.setattr(ask, "QUEUE_MAX", 2)
@@ -145,7 +131,6 @@ def test_queue_capacity_is_reported_not_silently_dropped(env, monkeypatch):
     assert [r["status"] for r in rs] == ["queued", "queued", "unavailable"]
     assert "queue full" in rs[2]["answer"]["reason"] and rs[2]["sources"]
     assert ask.queued() == [rs[0]["request_id"], rs[1]["request_id"]]
-
 
 def test_worker_recovers_from_a_failing_item_and_keeps_going(env, monkeypatch):
     capture_on()
@@ -177,7 +162,6 @@ def test_worker_recovers_from_a_failing_item_and_keeps_going(env, monkeypatch):
     assert real(bad["request_id"])["status"] == "error" and "database hiccup" in real(bad["request_id"])["error"]
     assert real(good["request_id"])["status"] == "ok"
 
-
 def test_restart_expires_queued_turns_visibly(env):
     capture_on()
     r = ask.ask("How do CUDA kernels work?")
@@ -186,7 +170,6 @@ def test_restart_expires_queued_turns_visibly(env):
     ask.stop()
     t = ask.request_status(r["request_id"])
     assert t["status"] == "expired" and "restarted" in t["answer"]["reason"]
-
 
 # ---------------------------------------------------------------- scoping and memory
 
@@ -205,7 +188,6 @@ def test_other_reels_exclude_previously_cited_reels_and_which_of_them_restricts(
                      graph=FakeGraph(), llm=env)
     assert scoped["sources"] and {s["reel_id"] for s in scoped["sources"]} <= previous
 
-
 def test_cited_concepts_come_from_the_exact_cited_chunks(env):
     r = ask.ask("Triton is built on top of CUDA", graph=FakeGraph(), llm=env)
     t = conversations.get_turn(r["turn_id"])
@@ -213,7 +195,6 @@ def test_cited_concepts_come_from_the_exact_cited_chunks(env):
     expected = {c["key"] for ch in cited_chunks for c in t["retrieval"]["source_concepts"].get(ch, [])}
     assert expected and {c["key"] for c in t["cited_concepts"]} == expected
     assert t["question_concepts"] and all(c["name"] for c in t["question_concepts"])
-
 
 def test_assistant_answers_never_reach_knowledge_stores(env):
     ask.ask("How do CUDA kernels work?", llm=env)
@@ -225,7 +206,6 @@ def test_assistant_answers_never_reach_knowledge_stores(env):
     col = indexer.get_collection(indexer.active_collection())
     assert not any("The Reel says" in d for d in col.get(include=["documents"])["documents"])
 
-
 def test_v2_context_rewrite_drives_retrieval_and_generation_end_to_end(env, monkeypatch):
     monkeypatch.setitem(conversations.DEFAULTS, "referents", "v2")
     first = ask.ask("How do Triton and CUDA kernels relate?", graph=FakeGraph(), llm=env)
@@ -235,7 +215,6 @@ def test_v2_context_rewrite_drives_retrieval_and_generation_end_to_end(env, monk
     assert t["rewrite"]["retrieval_query"] == "How are they different? How do Triton and CUDA kernels relate?"
     assert "Earlier questions in this conversation" in env.prompts[-1] and "The Reel says" not in t["rewrite"]["retrieval_query"]
 
-
 def test_follow_up_turns_are_marked_so_hard_gates_skip_them(env, monkeypatch):
     seen = []
     real = ask.answer.generate
@@ -244,7 +223,6 @@ def test_follow_up_turns_are_marked_so_hard_gates_skip_them(env, monkeypatch):
     first = ask.ask("How do Triton and CUDA kernels relate?", graph=FakeGraph(), llm=env)
     ask.ask("How are they different?", conversation_id=first["conversation_id"], graph=FakeGraph(), llm=env)
     assert seen == [False, True]
-
 
 def test_which_of_them_follow_ups_skip_hard_gates_only_with_the_fix(env, monkeypatch):
     """Phase 4D fix (held-out hm1.t2): 'Which of those …' strips to a question with nothing to resolve, so the
@@ -260,7 +238,6 @@ def test_which_of_them_follow_ups_skip_hard_gates_only_with_the_fix(env, monkeyp
         r = ask.ask("Which of those talk about Triton?", conversation_id=first["conversation_id"], graph=FakeGraph(), llm=env)
         assert conversations.get_turn(r["turn_id"])["rewrite"]["method"] == "none"
     assert seen == [False, False, False, True]
-
 
 def test_ambiguous_follow_up_gets_a_clarifying_question_without_the_model(env, monkeypatch):
     monkeypatch.setitem(conversations.DEFAULTS, "referents", "v2")

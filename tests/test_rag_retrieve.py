@@ -13,7 +13,6 @@ from backend import config, embedder, indexer, jobs, models, rag
 from test_chunking import oseg
 from test_indexer import add
 
-
 @pytest.fixture(autouse=True)
 def env(isolated_output, monkeypatch):
     monkeypatch.setattr(config, "EMBED_MODEL", embedder.HashEmbedder.MODEL)
@@ -23,10 +22,8 @@ def env(isolated_output, monkeypatch):
     yield
     indexer.release_writer()
 
-
 TERMS = {"triton": "Triton", "cuda": "CUDA", "github": "GitHub", "python": "Python", "sourdough": "sourdough",
          "kubernetes": "Kubernetes"}
-
 
 class FakeGraph:
     """GraphReader interface over the active collection: a chunk mentions a concept if the word occurs."""
@@ -77,10 +74,8 @@ class FakeGraph:
         return [r for r in self.relations if (r["subject"] in keys or r["object"] in keys)
                 and r["stored_status"] != "rejected"]
 
-
 def chunk_of(rid, kind="transcript"):
     return f"{rid}:{kind}:000"
-
 
 def relation(rid, s, o, support, status="proposed", chunk=None, rel_id=None):
     chunk = chunk or chunk_of(rid)
@@ -88,7 +83,6 @@ def relation(rid, s, o, support, status="proposed", chunk=None, rel_id=None):
             "subject_name": TERMS[s], "predicate": "DEPENDS_ON", "object": o, "object_name": TERMS[o],
             "quote": "Triton is built on top of CUDA", "reel_id": rid, "chunk_id": chunk, "content_hash": None,
             "ready": True, "support": support}
-
 
 def fix_hashes(g: FakeGraph, rels):
     """Fill the evidence locations the way the real query returns them (hash + ready per support item)."""
@@ -100,14 +94,12 @@ def fix_hashes(g: FakeGraph, rels):
     g.relations = rels
     return g
 
-
 def corpus():
     add("A", "Triton writes fast GPU kernels in Python")
     add("B", "Triton compiler tuning makes GPU kernels faster")
     add("C", "Triton sourdough bread starter recipe")
     add("D", "Python asyncio event loops explained")
     indexer.sync_all()
-
 
 # ---------------------------------------------------------------- modes
 
@@ -118,7 +110,6 @@ def test_vector_mode_matches_phase3_search():
     assert r["reels"][0] == indexer.search("fast GPU kernels with Triton")["results"][0]["reel_id"]
     assert all(ch["type"] == "semantic" for s in r["sources"] for ch in s["channels"])
 
-
 def test_graph_mode_uses_no_vector_similarity(monkeypatch):
     corpus()
     monkeypatch.setattr(embedder.HashEmbedder, "encode_query",
@@ -128,12 +119,10 @@ def test_graph_mode_uses_no_vector_similarity(monkeypatch):
     assert all(s["similarity"] is None for s in r["sources"])
     assert all(ch["type"] in ("shared_concept", "relation") for s in r["sources"] for ch in s["channels"])
 
-
 def test_graph_mode_with_no_named_concept_returns_nothing():
     corpus()
     r = rag.retrieve("how do I bake bread", mode="graph", graph=FakeGraph())
     assert r["sources"] == [] and r["mode_used"] == "graph"
-
 
 def test_hybrid_adds_a_relevant_cross_reel_passage_and_drops_irrelevant_ones():
     corpus()
@@ -146,7 +135,6 @@ def test_hybrid_adds_a_relevant_cross_reel_passage_and_drops_irrelevant_ones():
     assert all(ch["note"].startswith("shared concept mention") for s in r["sources"]
                for ch in s["channels"] if ch["type"] == "shared_concept")
 
-
 def test_unspecific_concepts_expand_only_when_the_question_names_them():
     for rid, w in [("P1", "Python lists"), ("P2", "Python dicts"), ("P3", "Python sets"), ("P4", "Python loops"),
                    ("P5", "Python classes"), ("T1", "Triton kernels in Python")]:
@@ -158,12 +146,10 @@ def test_unspecific_concepts_expand_only_when_the_question_names_them():
     r = rag.retrieve("Python classes", mode="hybrid", graph=FakeGraph(), options={"rel_abs": 0.0, "rel_frac": 0.0})
     assert next(c for c in r["concepts"] if c["key"] == "python")["expanded"] is True
 
-
 def test_specificity_threshold_scales_with_the_collection():
     # df ≤ N^(1-0.65): 59 Reels → 4, 1000 Reels → 11
     assert rag.specificity(4, 59) >= 0.65 > rag.specificity(5, 59)
     assert rag.specificity(11, 1000) >= 0.65 > rag.specificity(12, 1000)
-
 
 # ---------------------------------------------------------------- fallback at every graph stage
 
@@ -180,12 +166,10 @@ def test_any_graph_failure_falls_back_to_the_exact_vector_result(fail):
     assert r["sources"] == vec["sources"] and r["reels"] == vec["reels"]        # no graph mutation survives
     assert r["concepts"] == [] and r["connections"] == {"relations": [], "co_mentions": [], "mentions": []}
 
-
 def test_graph_mode_failure_falls_back_to_vector():
     corpus()
     r = rag.retrieve("Tell me about Triton", mode="graph", graph=FakeGraph(fail=("concept_index", 1)))
     assert r["mode_used"] == "vector" and r["sources"] and r["fallback"][0]["to"] == "vector"
-
 
 # ---------------------------------------------------------------- validity
 
@@ -199,14 +183,12 @@ def test_invalid_graph_evidence_is_excluded_while_valid_expansion_still_happens(
     assert "B" not in r["reels"] and r["stats"]["dropped_not_valid"] >= 1      # B's graph passages are invalid
     assert "C" in graph_reels and graph_reels <= {"A", "C"}                    # C's valid expansion is kept
 
-
 def test_stale_mentions_never_seed_the_expansion():
     corpus()
     g = FakeGraph(stale={"A"})                                                 # A is the only vector hit
     r = rag.retrieve("fast GPU kernels", mode="hybrid", graph=g,
                      options={"vector_candidates": 1, "rel_abs": 0.0, "rel_frac": 0.0, "protect_top": 1})
     assert r["concepts"] == [] and r["reels"] == ["A"]                         # no seed from A's stale mentions
-
 
 def test_relations_reported_only_for_evidence_in_the_pack_and_corroboration_needs_valid_evidence():
     corpus()
@@ -231,7 +213,6 @@ def test_relations_reported_only_for_evidence_in_the_pack_and_corroboration_need
     in_pack = {s["chunk_id"] for s in r["sources"]}
     assert chunk_of("C", "caption") not in in_pack and r["connections"]["relations"] == []
 
-
 def test_co_mentions_need_two_distinct_reels_in_the_pack():
     corpus()
     r = rag.retrieve("fast GPU kernels with Triton", mode="hybrid", graph=FakeGraph(),
@@ -243,7 +224,6 @@ def test_co_mentions_need_two_distinct_reels_in_the_pack():
                      options={"rel_abs": 0.0, "rel_frac": 0.0, "max_sources": 1})
     assert r["connections"]["co_mentions"] == []                                 # one Reel in the pack
 
-
 # ---------------------------------------------------------------- listing
 
 def _github_corpus():
@@ -251,7 +231,6 @@ def _github_corpus():
         add(f"G{i}", f"GitHub repo number {i} for side projects")
     add("X", "Unrelated sourdough recipe")
     indexer.sync_all()
-
 
 def test_listing_questions_are_exhaustive_without_the_per_concept_cap():
     _github_corpus()
@@ -266,14 +245,12 @@ def test_listing_questions_are_exhaustive_without_the_per_concept_cap():
     r = rag.retrieve("Which of my saved Reels mention GitHub, and in what context?", mode="graph", graph=FakeGraph())
     assert r["intent"] == "listing" and len(r["connections"]["mentions"][0]["reels"]) == 6
 
-
 def test_listing_completeness_reflects_the_final_pack():
     _github_corpus()
     r = rag.retrieve("Which Reels mention GitHub?", mode="hybrid", graph=FakeGraph(),
                      options={"listing_max": 3, "max_sources": 0})           # pack room: 3 listed Reels
     m = r["connections"]["mentions"][0]
     assert len(m["reels"]) == 6 and len(m["in_pack"]) == 3 and m["complete"] is False   # full list still reported
-
 
 def test_constrained_questions_are_not_exhaustive_listings():
     add("I1", "Python for coding interviews with NeetCode")
@@ -287,7 +264,6 @@ def test_constrained_questions_are_not_exhaustive_listings():
     r = rag.retrieve("Which Reel teaches Python specifically for coding interviews?", mode="hybrid", graph=FakeGraph())
     assert r["intent"] == "question" and r["connections"]["mentions"] == []
 
-
 # ---------------------------------------------------------------- follow-up boosts
 
 def _boost_corpus():
@@ -295,7 +271,6 @@ def _boost_corpus():
     for i in range(21):
         add(f"F{i}", f"gardening tomatoes week {i}")             # N = 25: spec(Triton) = log(25/3)/log(25) ≈ 0.66
     indexer.sync_all()
-
 
 def test_boost_concepts_seed_expansion_with_the_same_gates():
     _boost_corpus()
@@ -312,7 +287,6 @@ def test_boost_concepts_seed_expansion_with_the_same_gates():
                      boost_concepts=[])
     assert all(c["key"] != "triton" for c in r["concepts"])
 
-
 def test_unspecific_boost_is_not_expanded():
     for rid, w in [("P1", "Python lists"), ("P2", "Python dicts"), ("P3", "Python sets"), ("P4", "Python loops")]:
         add(rid, w)
@@ -321,12 +295,10 @@ def test_unspecific_boost_is_not_expanded():
                      options={"seed_passages": 0})
     assert next(c for c in r["concepts"] if c["key"] == "python")["expanded"] is False
 
-
 def test_exclude_reels_is_honoured():
     corpus()
     r = rag.retrieve("Which other Reels mention Triton?", mode="hybrid", graph=FakeGraph(), exclude_reels=["A"])
     assert "A" not in r["reels"] and set(r["connections"]["mentions"][0]["reels"]) == {"B", "C"}
-
 
 # ---------------------------------------------------------------- context pack
 
@@ -345,7 +317,6 @@ def test_reserved_slots_hold_complementary_evidence_not_more_of_the_protected_re
                      options={**opts, "context_chars": 400})
     assert "E" in [s["reel_id"] for s in r["sources"]]
 
-
 def test_distinct_caption_and_transcript_are_both_kept_only_identical_text_is_deduplicated():
     add("A", "Triton kernels", extra_transcript="tiling shared memory and autotuning block sizes for speed")
     indexer.sync_all()
@@ -358,7 +329,6 @@ def test_distinct_caption_and_transcript_are_both_kept_only_identical_text_is_de
     stats = {"dropped_near_duplicate": 0}
     out = rag._pack(list(dup), rag.DEFAULTS, 0, [], stats)
     assert len(out) == 1 and stats["dropped_near_duplicate"] == 1
-
 
 # ---------------------------------------------------------------- locks
 
@@ -380,7 +350,6 @@ def test_retrieval_does_not_wait_for_the_heavy_lock():
     finally:
         release.set()
         t.join(5)
-
 
 def test_retrieval_during_index_embedding_waits_only_for_the_embedder_and_never_deadlocks():
     corpus()
@@ -406,7 +375,6 @@ def test_retrieval_during_index_embedding_waits_only_for_the_embedder_and_never_
     t.join(5)
     q.join(5)
     assert not q.is_alive() and done["r"]["sources"]
-
 
 def test_defaults_are_the_frozen_dev_tuned_parameters():
     frozen = json.loads((config.ROOT / "fixtures" / "rag_params.json").read_text())

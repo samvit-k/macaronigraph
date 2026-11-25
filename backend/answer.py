@@ -79,7 +79,6 @@ Rules:
 - Proposed relations are tentative hints: rely on the cited source text, never on the relation alone.
 - Co-mentions mean two Reels mention the same thing; they are NOT a stated relationship."""
 
-
 # Phase 4C prompt (v2): direct, complete, paraphrased answers; partial answers instead of whole-question
 # abstention; explicit rules for negations/numbers and for "the term is mentioned but the question is not answered".
 USER_TEMPLATE_V2 = """QUESTION: {question}
@@ -110,32 +109,26 @@ How to answer:
 Example with made-up sources — QUESTION: How long is the course and what does it cost? SOURCE S1: "The bootcamp runs
 for 8 weeks, fully online." → {{"s":[{{"t":"The Reel says the bootcamp runs for 8 weeks and is fully online.","c":["S1"],"k":"src"}}],"insufficient":false,"conflict":false,"missing":"the cost"}}"""
 
-
 def prompt_sha256() -> str:
     import hashlib
     return hashlib.sha256((SYSTEM + "\n" + _template()).encode()).hexdigest()
 
-
 def _template() -> str:
     return USER_TEMPLATE_V2 if DEFAULTS.get("prompt") == "v2" else USER_TEMPLATE
-
 
 def _when(s: dict) -> str:
     if s.get("start") is None:
         return ""
     return f" {s['start']:.0f}-{s['end']:.0f}s" if s.get("end") is not None else f" {s['start']:.0f}s"
 
-
 def _clean(text: str) -> str:
     return re.sub(r"</?\s*source[^>]*>", " ", text, flags=re.I)        # sources cannot open/close source tags
-
 
 def informative(s: dict) -> bool:
     """Shown to the model? Passages with fewer than DEFAULTS["min_source_words"] real words (OCR fragments such as
     "ZOO", "at") are left out of the prompt; they stay in the pack and the UI, and cannot be cited."""
     n = DEFAULTS.get("min_source_words") or 0
     return not n or len(re.findall(r"[A-Za-z]{3,}", str(s.get("text", "")))) >= n
-
 
 def build_prompt(question: str, retrieval: dict, missing_terms: list[str] | None = None) -> tuple[str, str]:
     lines = []
@@ -168,12 +161,10 @@ def build_prompt(question: str, retrieval: dict, missing_terms: list[str] | None
                                 extra=("\n" + "\n".join(extra) + "\n") if extra else "", max_s=MAX_SENTENCES)
     return SYSTEM, user
 
-
 # ---------------------------------------------------------------- parsing (tolerant; never raises on content)
 
 class AnswerFormatError(RuntimeError):
     pass
-
 
 def parse(text, truncated: bool = False) -> tuple[dict, bool]:
     """→ (answer object, partial?). Strict JSON first; otherwise (or if truncated) only fully written sentence
@@ -208,7 +199,6 @@ def parse(text, truncated: bool = False) -> tuple[dict, bool]:
         out.append(obj)
     return {"s": out}, True
 
-
 # ---------------------------------------------------------------- validation
 
 _QUOTE = re.compile(r"[\"“”]([^\"“”]{3,400})[\"“”]")
@@ -217,20 +207,16 @@ _QUOTE = re.compile(r"[\"“”]([^\"“”]{3,400})[\"“”]")
 # a quote don't end it and ordinary apostrophes don't start one.
 _SQUOTE = re.compile(r"(?:^|(?<=[\s:(\[]))['‘](.{3,400}?)['’](?=[\s.,;:!?)\]]|$)")
 
-
 def quoted_spans(text: str) -> list[str]:
     return _QUOTE.findall(text) + _SQUOTE.findall(text)
-
 
 def _content_words(s: str) -> list[str]:
     return [w for w in re.findall(r"[a-z0-9$][a-z0-9$.,%+#\-']*[a-z0-9%+#]|[a-z0-9]", s.lower())
             if w not in _STOP and (len(w) > 2 or any(ch.isdigit() for ch in w))]
 
-
 def _stem(w: str) -> str:
     w = w.strip(".,'")
     return w[:6] if w.isalpha() else w.replace(",", "")
-
 
 def support(sentence: str, texts: list[str]) -> float:
     """Share of the sentence's content words (light stemming) that occur in the cited sources. Diagnostic only."""
@@ -240,14 +226,12 @@ def support(sentence: str, texts: list[str]) -> float:
     pool = {_stem(w) for t in texts for w in _content_words(t)}
     return sum(1 for w in words if _stem(w) in pool) / len(words)
 
-
 def _as_text(v) -> str:
     if isinstance(v, bool) or v is None:
         return ""
     if isinstance(v, (str, int, float)):
         return " ".join(str(v).split())
     return ""
-
 
 def _as_citations(v) -> list[str]:
     """Accepts "S1", ["S1", 2, "[S3]"], {"S1": ...}; anything else → []."""
@@ -268,7 +252,6 @@ def _as_citations(v) -> list[str]:
             out.append(c)
     return out
 
-
 def _as_bool(v) -> bool:
     if isinstance(v, bool):
         return v
@@ -276,11 +259,9 @@ def _as_bool(v) -> bool:
         return v.strip().lower() in ("true", "yes", "1")
     return False
 
-
 def safe_missing(note) -> str:
     """The model's 'missing' note is never rendered (it is unvalidated text): a fixed phrase if it reports a gap."""
     return PART_MISSING if _as_text(note) else ""
-
 
 # ---------------------------------------------------------------- inline citations (Phase 4C)
 
@@ -290,7 +271,6 @@ _BAD_MARK = re.compile(r"[\[(]\s*((?:source|src)\s*\d+|\d+(?:\s*,\s*\d+)*|S0+)\s
 _TRAIL = re.compile(r"([.!?])((?:\s*(?:\bc\s*:\s*)?[\[(]\s*" + _ID + r"(?:\s*[,;]\s*" + _ID + r")*\s*[\])])+)", re.I)
 _SPLIT = re.compile(r"(?<=[.!?])\s+(?=\S)")
 _ABBREV = re.compile(r"(?:\b(?:e\.g|i\.e|vs|etc|mr|mrs|ms|dr|st|no|approx|incl|u\.s)|\b[A-Za-z])\.$", re.I)
-
 
 def _sentences(text: str) -> list[str]:
     out, buf = [], ""
@@ -303,16 +283,13 @@ def _sentences(text: str) -> list[str]:
         out.append(buf)
     return out
 
-
 def _marks(text: str) -> list[str]:
     return [c.strip().strip("\"'").upper() for m in _MARK.finditer(text) for c in re.split(r"[,;]", m.group(1))]
-
 
 def _strip_marks(text: str) -> str:
     t = _BAD_MARK.sub("", _MARK.sub("", text))
     t = re.sub(r"\s+([.,;:!?])", r"\1", t)
     return " ".join(t.split())
-
 
 def split_inline(text: str, item_cites: list[str]) -> tuple[list[tuple[str, list[str]]], list[str]]:
     """Inline citation markers inside a sentence text → [(clean sentence, its citations)], malformed markers.
@@ -334,7 +311,6 @@ def split_inline(text: str, item_cites: list[str]) -> tuple[list[tuple[str, list
         return [(_strip_marks(sentences[0]), list(dict.fromkeys(item_cites + _marks(sentences[0]))))], bad
     return [(_strip_marks(x), _marks(x)) for x in sentences], bad
 
-
 _ABSENCE = re.compile(
     r"\b(?:(?:is|are|was|were)(?:n't| not) (?:explicitly |directly |specifically )?(?:mentioned|stated|discussed|"
     r"covered|provided|given|described|addressed|specified)|(?:does|do|did)(?:n't| not) (?:explicitly |directly )?"
@@ -344,7 +320,6 @@ _ABSENCE = re.compile(
 _ABSENCE_Q = re.compile(r"\bno (?:specific |explicit |direct |clear )(?:information|mention|details?)\b", re.I)
 _ABOUT_SOURCES = re.compile(r"\b(?:sources?|reels?|content|passages?|provided|retrieved)\b", re.I)
 
-
 def absence_only(text: str) -> bool:
     """A statement that something is ABSENT from the sources ("X is not mentioned in the sources", "the Reel says
     nothing about X") — not a claim the Reel makes. A Reel's own negative claim ("the Reel says you can skip
@@ -352,10 +327,8 @@ def absence_only(text: str) -> bool:
     found = _ABSENCE.search(text) or (DEFAULTS.get("absence_clause") and _ABSENCE_Q.search(text))
     return bool(found) and bool(_ABOUT_SOURCES.search(text) or re.search(r"\bsays? nothing\b", text, re.I))
 
-
 _CLAUSE = re.compile(r"\s*(?:,|;|—|–)\s*(?=(?:but|though|although|however|while|whereas|yet|and|as|since|so)\b)|"
                      r"\s*;\s*|\s+(?=(?:but|though|although|whereas)\s)", re.I)
-
 
 def strip_absence_clause(text: str) -> str | None:
     """A sentence that answers AND says something is not mentioned ("Google, Microsoft … offer fellowships, though
@@ -379,7 +352,6 @@ def strip_absence_clause(text: str) -> str | None:
     if len(_content_words(kept)) < 4 or absence_only(kept):
         return None
     return kept[0].upper() + kept[1:] + ("" if kept.endswith((".", "!", "?")) else ".")
-
 
 def validate(data, retrieval: dict) -> dict:
     by_sid = {s["sid"]: s for s in retrieval["sources"] if informative(s)}
@@ -448,7 +420,6 @@ def validate(data, retrieval: dict) -> dict:
             "model_said_insufficient": _as_bool(data.get("insufficient")), "citations": cited,
             "text": render(kept, missing, status, conflict)}
 
-
 def render(sentences: list[dict], missing: str, status: str, conflict: bool = False) -> str:
     if status != "ok":
         return ABSTAIN
@@ -458,7 +429,6 @@ def render(sentences: list[dict], missing: str, status: str, conflict: bool = Fa
     if conflict:
         out += "\n\nThe sources disagree on this; each claim is cited separately."
     return out + (f"\n\n{missing}" if missing else "")
-
 
 # ---------------------------------------------------------------- generation
 
@@ -509,7 +479,6 @@ def generate(question: str, retrieval: dict, llm=None, timeout: float | None = N
                        "peak_memory_gb": st.get("peak_memory_gb")})
     return out
 
-
 # ---------------------------------------------------------------- Phase 4D orchestration
 
 def deterministic(question: str, retrieval: dict, scope: dict | None = None, graph=None) -> dict | None:
@@ -529,7 +498,6 @@ def deterministic(question: str, retrieval: dict, scope: dict | None = None, gra
     retrieval["sources"] = sources
     retrieval["intent"] = f"listing_{out['deterministic']['kind']}"
     return out
-
 
 def respond(question: str, retrieval: dict, llm=None, timeout: float | None = None, follow_up: bool = False,
             scope: dict | None = None, graph=None, allow_deterministic: bool = True) -> dict:

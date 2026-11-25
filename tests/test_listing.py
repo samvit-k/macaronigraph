@@ -9,11 +9,9 @@ from backend import answer, ask, config, conversations, embedder, indexer, jobs,
 from test_indexer import add, oseg
 from test_rag_retrieve import FakeGraph
 
-
 class NoModel:
     def generate(self, *a, **k):
         raise AssertionError("the model must not be called for a deterministic listing")
-
 
 @pytest.fixture
 def idx(isolated_output, monkeypatch):
@@ -33,7 +31,6 @@ def idx(isolated_output, monkeypatch):
     yield
     indexer.release_writer()
 
-
 @pytest.mark.parametrize("q,kind,term", [
     ("Which Reels mention CUDA?", "list", "CUDA"),
     ("Which of my saved Reels mention Claude Code?", "list", "Claude Code"),
@@ -46,7 +43,6 @@ def test_detects_pure_listing_and_count_questions(q, kind, term):
     d = listing.detect(q)
     assert d and d["kind"] == kind and d["term"] == term
 
-
 @pytest.mark.parametrize("q", [
     "Which Reels mention Docker, and in what context?", "Which Reels talk about CUDA?",
     "Which Reels recommend NeetCode?", "Which Reel teaches Python specifically for coding interviews?",
@@ -54,7 +50,6 @@ def test_detects_pure_listing_and_count_questions(q, kind, term):
 ])
 def test_constrained_or_semantic_questions_are_not_deterministic(q):
     assert listing.detect(q) is None
-
 
 def test_lists_every_literal_match_once_with_evidence_type_and_citations(idx):
     out, sources = listing.answer("Which Reels mention CUDA?", graph=FakeGraph())
@@ -66,19 +61,16 @@ def test_lists_every_literal_match_once_with_evidence_type_and_citations(idx):
     assert [x for x in out["sentences"] if x["citations"]][-1]["text"].count("on-screen text") == 1
     assert det["searched_reels"] == 5 and "5 processed Reels" in out["text"] and "not processed" in out["text"]
 
-
 def test_counts_report_the_spoken_and_on_screen_split(idx):
     out, _ = listing.answer("How many Reels mention CUDA?", graph=FakeGraph())
     assert out["sentences"][0]["text"].startswith("3 of the 5 processed Reels mention")
     assert "2 in the spoken transcript or caption and 1 only in on-screen text" in out["sentences"][0]["text"]
-
 
 def test_spacing_variants_match_and_zero_matches_are_stated(idx):
     out, _ = listing.answer("Which Reels mention LeetCode?", graph=FakeGraph())
     assert out["deterministic"]["reels"] == ["D"]                                   # "leet code"
     out, sources = listing.answer("Which Reels mention Kubernetes?", graph=FakeGraph())
     assert not sources and out["sentences"][0]["text"].startswith("None of the 5 processed Reels mention")
-
 
 def test_previous_reel_scoping(idx):
     out, _ = listing.answer("Which of them also mention Triton?", scope={"within": ["A", "B"]}, graph=FakeGraph())
@@ -88,7 +80,6 @@ def test_previous_reel_scoping(idx):
     assert out["deterministic"]["reels"] == ["B", "C"]
     assert listing.answer("Which of them mention CUDA?", scope={}, graph=FakeGraph()) is None
 
-
 def test_stale_index_entries_are_skipped_and_reported(idx):
     with jobs.tx() as con:
         con.execute("UPDATE index_state SET content_hash='stale' WHERE reel_id='B'")
@@ -96,14 +87,12 @@ def test_stale_index_entries_are_skipped_and_reported(idx):
     assert "B" not in out["deterministic"]["reels"] and out["deterministic"]["skipped_stale"] == ["B"]
     assert not out["deterministic"]["complete"] and "out of date" in out["text"]
 
-
 def test_graph_offline_still_answers_with_the_exact_wording(idx):
     class Down:
         def concept_index(self):
             raise ConnectionError("neo4j offline")
     out, _ = listing.answer("Which Reels mention CUDA?", graph=Down())
     assert out["deterministic"]["reels"] == ["A", "B", "C"] and "graph aliases unavailable" in out["text"]
-
 
 def test_api_answers_listings_without_the_model_even_while_capture_is_active(idx, monkeypatch):
     monkeypatch.setattr(models, "shared_llm", lambda *a: NoModel())
@@ -116,7 +105,6 @@ def test_api_answers_listings_without_the_model_even_while_capture_is_active(idx
     r2 = ask.ask("Which of them also mention Triton?", conversation_id=r["conversation_id"], graph=FakeGraph(),
                  llm=NoModel())
     assert r2["status"] == "ok" and [c["reel_id"] for c in r2["citations"]] == ["B"]
-
 
 def test_listing_is_off_unless_enabled(idx, monkeypatch):
     monkeypatch.setitem(answer.DEFAULTS, "listing", False)

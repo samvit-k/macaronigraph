@@ -37,20 +37,16 @@ DUP_SCREEN = 0.9           # near-identical screens are collapsed (provenance of
 CAPTION_SHORT = 120
 _SENT_END = re.compile(r"[.!?…][\"')\]]*$")
 
-
 def _words(text: str) -> int:
     return len(text.split())
 
-
 def _line_key(text: str) -> str:
     return " ".join(text.lower().split())
-
 
 def _span(items: list[dict]) -> tuple[float | None, float | None]:
     st = [p["start"] for p in items if p.get("start") is not None]
     en = [p["end"] for p in items if p.get("end") is not None]
     return (round(min(st), 2) if st else None, round(max(en), 2) if en else None)
-
 
 # ---------------------------------------------------------------- transcript
 
@@ -78,7 +74,6 @@ def transcript_windows(segs: list[dict]) -> list[list[dict]]:
             windows.pop()
     return windows
 
-
 # ---------------------------------------------------------------- OCR
 
 def _ocr_items(record: dict) -> list[dict]:
@@ -99,7 +94,6 @@ def _ocr_items(record: dict) -> list[dict]:
                       "kind": p.get("ocr_kind") or seg.get("kind") or "text"})
     return items
 
-
 def _duration(record: dict) -> float:
     cap = record.get("capture") or {}
     for v in (cap.get("video_duration_s"), cap.get("captured_s"),
@@ -108,18 +102,14 @@ def _duration(record: dict) -> float:
             return float(v)
     return 0.0
 
-
 def _visible(p: dict) -> float:
     return (p["end"] or 0) - (p["start"] or 0) if p.get("start") is not None else 0.0
 
-
 MOMENT_TOL_S = 1.0         # lines first detected within this of each other appeared together
-
 
 def _order_key(p: dict):
     box = p.get("box") or [0, 0, 0, 0]
     return (round(p.get("start") or 0), round(box[1], 2), box[0])
-
 
 def _reading_order(items: list[dict]) -> list[dict]:
     """Moments in time order; within a moment (detection times differing by ≤ MOMENT_TOL_S, e.g. because
@@ -133,7 +123,6 @@ def _reading_order(items: list[dict]) -> list[dict]:
     yx = lambda p: ((p.get("box") or [0, 0])[1], (p.get("box") or [0])[0])  # noqa: E731
     return [p for m in moments for p in sorted(m, key=yx)]
 
-
 def confident_echo(p: dict, confident_segs: list[dict], interval_s: float) -> bool:
     """True only if confident speech around this passage's time covers its words (score ≥ ECHO_HIGH).
     Low-confidence or missing transcript coverage → False (the OCR is kept)."""
@@ -142,7 +131,6 @@ def confident_echo(p: dict, confident_segs: list[dict], interval_s: float) -> bo
     speech = ocr_mod._speech_words(confident_segs, p["start"], p["end"] if p.get("end") is not None else p["start"],
                                    ocr_mod.ECHO_PAD_S + interval_s)
     return bool(speech) and ocr_mod.echo_score(p["text"], speech) >= ocr_mod.ECHO_HIGH
-
 
 def ocr_plan(record: dict) -> dict:
     """Decide what happens to every OCR passage → lists of passages under
@@ -168,7 +156,6 @@ def ocr_plan(record: dict) -> dict:
             plan["screen"].append(p)
     return plan
 
-
 def _group_by_time(items: list[dict]) -> list[list[dict]]:
     groups: list[list[dict]] = []
     end = None
@@ -181,7 +168,6 @@ def _group_by_time(items: list[dict]) -> list[list[dict]]:
             groups.append([p])
             end = e
     return groups
-
 
 def _split_lines(group: list[dict]) -> list[list[dict]]:
     """Order a screen's lines for reading and split at MAX_CHUNK_CHARS on line boundaries. A repeated line
@@ -202,7 +188,6 @@ def _split_lines(group: list[dict]) -> list[list[dict]]:
         size += len(p["text"]) + 1
     return [pt for pt in parts if pt]
 
-
 def _screen_text(sc: list[dict]) -> str:
     lines, seen = [], set()
     for p in _reading_order(sc):
@@ -211,7 +196,6 @@ def _screen_text(sc: list[dict]) -> str:
             seen.add(key)
             lines.append(p["text"].strip())
     return "\n".join(lines)
-
 
 def _collapse_duplicates(screens: list[list[dict]]) -> list[list[dict]]:
     out: list[tuple[str, list[dict]]] = []
@@ -225,7 +209,6 @@ def _collapse_duplicates(screens: list[list[dict]]) -> list[list[dict]]:
             out.append((text, list(sc)))
     return [sc for _, sc in out]
 
-
 # ---------------------------------------------------------------- record → chunks
 
 def _context(record: dict) -> tuple[str, str]:
@@ -235,10 +218,8 @@ def _context(record: dict) -> tuple[str, str]:
     first = caption.split("#")[0].strip() or caption
     return owner, first[:CAPTION_SHORT]
 
-
 LABEL = {"caption": "caption", "transcript": "spoken", "ocr": "on-screen text",
          "ocr_title": "on-screen title", "ocr_fragment": "on-screen text (uncertain OCR)"}
-
 
 def embed_text(chunk: dict) -> str:
     """What gets embedded: a short context header + the chunk text (the stored document is the plain text)."""
@@ -247,7 +228,6 @@ def embed_text(chunk: dict) -> str:
     if md.get("caption_short") and md["content_type"] != "caption":
         head += f" — {md['caption_short']}"
     return f"{head} · {LABEL[md['content_type']]}\n{chunk['text']}"
-
 
 def build_chunks(record: dict, source: str) -> list[dict]:
     """Deterministic chunks for one canonical record: [{id, text, metadata}]; metadata values are scalars."""
@@ -309,7 +289,6 @@ def build_chunks(record: dict, source: str) -> list[dict]:
         add("ocr_fragment", _screen_text(sc), sc, **labels(sc))
     return chunks
 
-
 def content_hash(chunks: list[dict]) -> str:
     """Hash of everything that ends up in the index for a Reel (ids, documents, embedded text, metadata)."""
     h = hashlib.sha256(CHUNKER_VERSION.encode())
@@ -317,7 +296,6 @@ def content_hash(chunks: list[dict]) -> str:
         h.update(json.dumps([c["id"], c["text"], embed_text(c), c["metadata"]], sort_keys=True,
                             ensure_ascii=False).encode())
     return h.hexdigest()[:24]
-
 
 def summarize(record: dict, chunks: list[dict]) -> dict:
     """Counts used for reporting (how many OCR passages went where, chunks per type)."""

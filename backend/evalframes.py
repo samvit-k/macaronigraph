@@ -20,20 +20,16 @@ from . import config
 MAX_SELECTED = 5
 _SAFE_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")  # Instagram shortcodes, test ids, session ids
 
-
 class UnsafeIdError(ValueError):
     pass
 
-
 def eval_dir() -> Path:
     return config.OUTPUT_DIR / "eval_frames"
-
 
 def _check_id(value: str | None, what: str) -> str:
     if not isinstance(value, str) or not _SAFE_ID.fullmatch(value):
         raise UnsafeIdError(f"unsafe {what}: {value!r}")
     return value
-
 
 def _inside(path: Path) -> Path:
     """Resolve and assert the path stays inside eval_dir() (defence in depth after _check_id)."""
@@ -42,7 +38,6 @@ def _inside(path: Path) -> Path:
         raise UnsafeIdError(f"path escapes {root}: {p}")
     return p
 
-
 def selection() -> list[str]:
     f = eval_dir() / "selection.json"
     if not f.is_file():
@@ -50,10 +45,8 @@ def selection() -> list[str]:
     ids = json.loads(f.read_text()).get("reel_ids", [])
     return [i for i in ids if isinstance(i, str) and _SAFE_ID.fullmatch(i)][:MAX_SELECTED]
 
-
 def enabled_for(reel_id: str | None) -> bool:
     return bool(reel_id) and reel_id in selection()
-
 
 def save(reel_id: str, session_id: str, frames: list[tuple[float, bytes]], interval_s: float,
          transcript: dict | None) -> Path | None:
@@ -73,7 +66,6 @@ def save(reel_id: str, session_id: str, frames: list[tuple[float, bytes]], inter
         "transcript_text": (transcript or {}).get("text", "")}, ensure_ascii=False, indent=1))
     return d
 
-
 def load(reel_id: str) -> tuple[list[tuple[float, bytes]], dict]:
     """Latest saved capture for a Reel → (frames, meta)."""
     base = _inside(eval_dir() / _check_id(reel_id, "reel_id"))
@@ -83,7 +75,6 @@ def load(reel_id: str) -> tuple[list[tuple[float, bytes]], dict]:
     meta = json.loads(runs[-1].read_text())
     return [(f["t"], (runs[-1].parent / f["file"]).read_bytes()) for f in meta["frames"]], meta
 
-
 def enable(reel_ids: list[str]) -> list[str]:
     ids = list(dict.fromkeys(_check_id(i, "reel_id") for i in reel_ids))
     if not ids or len(ids) > MAX_SELECTED:
@@ -92,13 +83,11 @@ def enable(reel_ids: list[str]) -> list[str]:
     (eval_dir() / "selection.json").write_text(json.dumps({"reel_ids": ids}, indent=1))
     return ids
 
-
 def purge() -> int:
     d = eval_dir()
     n = sum(1 for _ in d.rglob("*.jpg")) if d.exists() else 0
     shutil.rmtree(d, ignore_errors=True)
     return n
-
 
 if __name__ == "__main__":
     cmd, args = (sys.argv[1] if len(sys.argv) > 1 else "status"), sys.argv[2:]

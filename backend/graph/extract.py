@@ -98,13 +98,11 @@ PASSAGES:
 {passages}
 {context}"""
 
-
 def _r1_version(model_id: str, revision: str) -> str:
     """The r1 identity, exactly as computed during the Phase 4A build (no recovery component)."""
     h = hashlib.sha256(f"{model_id}@{revision}|{PROMPT_VERSION}|{INPUT_RULES_VERSION}|{SYSTEM}|{USER_TEMPLATE}"
                        .encode()).hexdigest()[:12]
     return f"x-{PROMPT_VERSION}{INPUT_RULES_VERSION}-{h}"
-
 
 def extractor_version(model_id: str, revision: str) -> str:
     """Identity of the LLM step: model + revision + prompt + input selection + failure-recovery policy."""
@@ -113,21 +111,17 @@ def extractor_version(model_id: str, revision: str) -> str:
                        f"|{recovery}".encode()).hexdigest()[:12]
     return f"x-{PROMPT_VERSION}{INPUT_RULES_VERSION}{RECOVERY_VERSION}-{h}"
 
-
 def compatible_versions(model_id: str, revision: str) -> list[str]:
     """Earlier versions whose successful proposals are accepted as-is (they keep their own label): same model,
     revision, prompt and input rules; r1 differs only in failure recovery, and its first attempt is identical
     (same prompt, same token budget, greedy decoding). r1 *failures* are not reused — those Reels are re-run."""
     return [_r1_version(model_id, revision)]
 
-
 def grounding_version() -> str:
     """Normalization rules + aliases.json digest + grounding rules (re-grounds cached proposals, no LLM)."""
     return f"{nz.version()}-{GROUNDING_RULES}"
 
-
 LABEL = {"caption": "caption", "transcript": "spoken", "ocr": "on-screen", "ocr_title": "on-screen title"}
-
 
 def prepare(record: dict, source: str = "instagram") -> dict:
     """Numbered passages for the prompt (P1…, mapped to Chroma chunk ids)."""
@@ -146,7 +140,6 @@ def prepare(record: dict, source: str = "instagram") -> dict:
     return {"reel_id": record["reel_id"], "content_hash": chunking.content_hash(chunks),
             "passages": passages, "context": context}
 
-
 def prompt_for(prepared: dict) -> str:
     def when(p):
         return f" {p['start']:.0f}-{p['end']:.0f}s" if p.get("start") is not None else ""
@@ -158,14 +151,12 @@ def prompt_for(prepared: dict) -> str:
                                 predicates="\n".join(f"  {k}: {v}" for k, v in PREDICATES.items()),
                                 max_c=MAX_CONCEPTS, max_r=MAX_RELATIONS, passages="\n".join(lines), context=ctx)
 
-
 class ExtractionError(RuntimeError):
     """Deterministic failure of the model output (greedy decoding: re-running the same input reproduces it)."""
 
     def __init__(self, msg: str, attempts: list[dict] | None = None):
         super().__init__(msg)
         self.attempts = attempts or []
-
 
 # Conservative structural repairs, observed in real output of this model. They only insert/remove JSON
 # punctuation; no name, quote, number or object is ever added, completed or guessed. The repaired text must
@@ -177,7 +168,6 @@ _REPAIRS = (
     ("removed trailing comma", re.compile(r",\s*([\]}])"), r"\1"),
 )
 
-
 def repair_json(text: str) -> tuple[str, list[str]]:
     applied = []
     for label, rx, repl in _REPAIRS:
@@ -185,7 +175,6 @@ def repair_json(text: str) -> tuple[str, list[str]]:
         if n:
             applied.append(f"{label} ×{n}")
     return text, applied
-
 
 def parse_with_repair(text: str) -> tuple[dict, list[str]]:
     """Strict parse; if that fails, strict parse of the structurally repaired text. → (proposal, repairs)"""
@@ -199,7 +188,6 @@ def parse_with_repair(text: str) -> tuple[dict, list[str]]:
             return parse_json(fixed), repairs
         except ExtractionError as e:
             raise ExtractionError(f"{first} (repair failed: {e})") from e
-
 
 def salvage(text: str) -> tuple[dict, dict]:
     """Truncated output: keep only the concept/relation objects the model fully emitted (after structural
@@ -232,7 +220,6 @@ def salvage(text: str) -> tuple[dict, dict]:
     info.update(salvaged_concepts=len(out["concepts"]), salvaged_relations=len(out["relations"]))
     return out, info
 
-
 def parse_json(text: str) -> dict:
     """The model output must contain a JSON object with BOTH a "concepts" and a "relations" list (either may be
     empty). Anything else is an error, never a silent empty extraction."""
@@ -257,7 +244,6 @@ def parse_json(text: str) -> dict:
         raise ExtractionError(f"JSON lacks required list(s): {', '.join(missing)}")
     return {"concepts": data["concepts"], "relations": data["relations"]}
 
-
 def _pid(x) -> str | None:
     if isinstance(x, bool):
         return None
@@ -267,7 +253,6 @@ def _pid(x) -> str | None:
         t = x.strip().upper()
         return t if t.startswith("P") else f"P{t}"
     return None
-
 
 def _concept_from_row(row) -> dict | None:
     """{"n","t","s","p"} or [name, type, surface, [passage numbers]] → concept dict (malformed → None)."""
@@ -280,7 +265,6 @@ def _concept_from_row(row) -> dict | None:
     pids = row[3] if len(row) > 3 and isinstance(row[3], list) else []
     return {"name": row[0], "type": row[1], "surface": row[2], "passages": [p for p in map(_pid, pids) if p]}
 
-
 def _relation_from_row(row) -> dict | None:
     """{"s","p","o","i","q"} or [subject, PREDICATE, object, passage number, quote] → relation dict."""
     if isinstance(row, dict):
@@ -290,10 +274,8 @@ def _relation_from_row(row) -> dict | None:
         return None
     return {"subject": row[0], "predicate": row[1], "object": row[2], "passage": _pid(row[3]) or "", "quote": row[4]}
 
-
 _ATTEMPT_FIELDS = ("seconds", "prompt_tokens", "generation_tokens", "prompt_tps", "generation_tps",
                    "peak_memory_gb", "finish_reason")
-
 
 def propose(llm, prepared: dict) -> tuple[dict, dict]:
     """→ (raw proposal, stats). Recovery policy RECOVERY_VERSION (see module docstring). stats["attempts"] has
@@ -345,7 +327,6 @@ def propose(llm, prepared: dict) -> tuple[dict, dict]:
     raise ExtractionError(f"output truncated at {RETRY_MAX_TOKENS} tokens after retry and nothing complete to keep "
                           f"(first attempt: {first})", attempts)
 
-
 # ---------------------------------------------------------------- grounding
 
 def norm_text(s: str) -> str:
@@ -355,9 +336,7 @@ def norm_text(s: str) -> str:
     s = re.sub(r"(?<!\w)\.|\.(?!\w)", " ", s)                 # sentence dots, not "agents.md"
     return " ".join(s.split())
 
-
 _EDGE = re.compile(r"^[^\w.#+]+|[^\w+#]+$")
-
 
 def mention_tokens(s: str) -> list[str]:
     """Identifier-aware tokens for concept matching: "CUDA-Q" → ["cuda-q"], "x86-64" → ["x86-64"],
@@ -378,12 +357,10 @@ def mention_tokens(s: str) -> list[str]:
             out.append(t)
     return out
 
-
 def _fuzzy_allowed(surface: str, stoks: list[str]) -> bool:
     letters = re.sub(r"[^A-Za-z]", "", surface)
     return (all(t.isalpha() for t in stoks) and sum(map(len, stoks)) >= FUZZY_MIN_CHARS
             and not (letters.isupper() and len(letters) <= 6))          # acronyms must match exactly
-
 
 def surface_match(surface: str, text: str) -> str | None:
     """'exact' if the surface's identifier-aware tokens occur contiguously in the text; 'fuzzy' for plain-word
@@ -413,20 +390,16 @@ def surface_match(surface: str, text: str) -> str | None:
         return "fuzzy"
     return None
 
-
 def assertion_id(reel_id: str, chunk_id: str, subj: str, pred: str, obj: str) -> str:
     return hashlib.sha1(f"{reel_id}|{chunk_id}|{subj}|{pred}|{obj}".encode()).hexdigest()[:20]
 
-
 def _str(x) -> str:
     return x.strip() if isinstance(x, str) else ""
-
 
 def recall_forms(entry: dict) -> list[str]:
     """Literal spellings to look for when adding deterministic mentions: the grounded surfaces, the display
     name and every curated synonym spelling (aliases.json) of the accepted concept. Exact matching only."""
     return sorted(set(entry["surfaces"]) | {entry["name"]} | set(nz.curated_surfaces(entry["name"])))
-
 
 # ---------------------------------------------------------------- relation evidence (exact, one sentence, not a list)
 
@@ -438,7 +411,6 @@ _CUES = frozenset("vs versus than unlike instead rather whereas but compared com
                   "difference alternative alternatives replace replaces replaced similar".split())
 _NUMERIC = re.compile(r"^[$€£¥]?\s*\d[\d.,]*\s*[kKmMbB%]?\+?$")
 
-
 def _items(sentence: str) -> list[str | None]:
     """Identifier-aware tokens of a sentence, with None marking list separators (, ; |)."""
     out: list[str | None] = []
@@ -448,7 +420,6 @@ def _items(sentence: str) -> list[str | None]:
         else:
             out += mention_tokens(part)
     return out
-
 
 def _spans(items: list[str | None], key: str, entry: dict) -> list[tuple[int, int]]:
     """Token spans naming the concept exactly: a literal spelling (surface, display name, curated synonym) or
@@ -465,7 +436,6 @@ def _spans(items: list[str | None], key: str, entry: dict) -> list[tuple[int, in
                 out.add((i, i + n))
     return sorted(out)
 
-
 def _is_list(between: list[str | None]) -> bool:
     """The tokens between two names only separate list items: "A, B", "A and B", "A, x, y, or B"."""
     groups, cur = [], []
@@ -480,7 +450,6 @@ def _is_list(between: list[str | None]) -> bool:
     if len(groups) == 1:
         return not content[0]
     return all(len(g) <= 3 for g in content)
-
 
 def relation_evidence(quote: str, s_key: str, s_entry: dict, o_key: str, o_entry: dict) -> str | None:
     """None if the quote can state the relation; otherwise the rejection reason."""
@@ -505,7 +474,6 @@ def relation_evidence(quote: str, s_key: str, s_entry: dict, o_key: str, o_entry
     if nested:
         return "one concept is named only inside the other's name"
     return "quote names the concepts in different sentences"
-
 
 def ground(raw: dict, prepared: dict) -> dict:
     """Apply grounding + normalization. → {"concepts": {key: {key, name, type, surfaces}}, "mentions": [...],

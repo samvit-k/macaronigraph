@@ -90,7 +90,7 @@ export default function AssistantPanel({ open, onClose, chat, draft, setDraft, f
         <div className="as-actions">
           <div className="history-wrap">
             <button type="button" className="btn btn-sm" onClick={() => setShowHistory((v) => !v)} aria-expanded={showHistory}>History</button>
-            
+
           </div>
           <button type="button" className="btn btn-sm" onClick={() => { chat.startNew(); setDraft(''); inputRef.current?.focus() }}
             disabled={!chat.id && chat.turns.length === 0}>New</button>

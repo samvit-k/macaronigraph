@@ -14,7 +14,6 @@ from backend import config, embedder, indexer, jobs, models
 from backend.graph import sync as gs
 from conftest import ROOT
 
-
 @pytest.fixture(autouse=True)
 def iso(isolated_output, monkeypatch):
     monkeypatch.setattr(models, "_shared", None)
@@ -25,7 +24,6 @@ def iso(isolated_output, monkeypatch):
     monkeypatch.setattr(models, "stats", {"created": 0, "unloads": 0, "evictions": 0})
     yield
     models.shutdown()
-
 
 class FakeMlx:
     """Stands in for graph.llm.MlxLLM: counts weight loads; loading and generation can be slowed down."""
@@ -47,14 +45,12 @@ class FakeMlx:
     def unload(self):
         self._model = None
 
-
 @pytest.fixture
 def fake_mlx(monkeypatch):
     from backend.graph import llm as graph_llm
     FakeMlx.instances = 0
     monkeypatch.setattr(graph_llm, "MlxLLM", FakeMlx)
     return FakeMlx
-
 
 def _holder_process(seconds: float):
     """Another process holding the heavy lock on the same OUTPUT_DIR."""
@@ -67,7 +63,6 @@ def _holder_process(seconds: float):
     assert p.stdout.readline().strip() == "held"
     return p
 
-
 # ---------------------------------------------------------------- lock semantics
 
 def test_reentrant_within_a_thread_and_reports_its_holder():
@@ -76,7 +71,6 @@ def test_reentrant_within_a_thread_and_reports_its_holder():
             assert models.holder()["purpose"] == "outer" and models.held_by_me()
         assert models.held_by_me()
     assert models.holder() is None and not models.held_by_me()
-
 
 def test_threads_are_mutually_exclusive_with_timeout():
     entered, release = threading.Event(), threading.Event()
@@ -98,7 +92,6 @@ def test_threads_are_mutually_exclusive_with_timeout():
     with models.heavy("answer", timeout=0.5):
         assert models.held_by_me()
 
-
 def test_cross_process_mutual_exclusion_and_waiting():
     p = _holder_process(1.5)
     try:
@@ -112,7 +105,6 @@ def test_cross_process_mutual_exclusion_and_waiting():
     finally:
         p.wait(10)
 
-
 def test_exception_inside_releases_thread_and_process_locks():
     with pytest.raises(ValueError):
         with models.heavy("answer"):
@@ -122,7 +114,6 @@ def test_exception_inside_releases_thread_and_process_locks():
     p = _holder_process(0.1)                                    # file lock free for another process
     p.wait(10)
     assert p.returncode == 0
-
 
 def test_unexpected_flock_error_propagates_without_retry_and_releases_the_thread_lock(monkeypatch):
     calls = []
@@ -138,7 +129,6 @@ def test_unexpected_flock_error_propagates_without_retry_and_releases_the_thread
     assert models._tlock.acquire(timeout=0)
     models._tlock.release()
 
-
 def test_failing_unlock_still_releases_the_thread_lock(monkeypatch):
     real = models.fcntl.flock
 
@@ -153,7 +143,6 @@ def test_failing_unlock_still_releases_the_thread_lock(monkeypatch):
     assert models._tlock.acquire(timeout=0)                     # not leaked
     models._tlock.release()
 
-
 # ---------------------------------------------------------------- shared LLM
 
 def test_one_shared_instance_and_generation_only_inside_heavy(fake_mlx):
@@ -165,7 +154,6 @@ def test_one_shared_instance_and_generation_only_inside_heavy(fake_mlx):
         assert a.generate("s", "u")[0] == "ok"
     assert models.loaded()
 
-
 def test_idle_unload_frees_weights_and_reload_uses_the_same_instance(fake_mlx):
     llm = models.shared_llm()
     with models.heavy("answer"):
@@ -176,7 +164,6 @@ def test_idle_unload_frees_weights_and_reload_uses_the_same_instance(fake_mlx):
     with models.heavy("answer"):
         llm.generate("s", "u")                                  # reloads lazily, same object
     assert fake_mlx.instances == 1 and llm._inner.loads == 2 and models.stats["unloads"] == 1
-
 
 def test_idle_unload_never_overlaps_a_running_generation(fake_mlx):
     llm = models.shared_llm()
@@ -197,14 +184,12 @@ def test_idle_unload_never_overlaps_a_running_generation(fake_mlx):
     t.join(5)
     assert result["out"][0] == "ok" and models.loaded()          # FakeMlx asserts weights never vanished
 
-
 def test_unload_called_by_a_caller_is_deferred_not_immediate(fake_mlx):
     llm = models.shared_llm()
     with models.heavy("graph extraction"):
         llm.generate("s", "u")
     llm.unload()                                                # what graph sync calls at the end
     assert models.loaded()                                      # left to the idle timer
-
 
 def test_shutdown_during_initial_model_loading_waits_then_frees(fake_mlx):
     llm = models.shared_llm()
@@ -225,7 +210,6 @@ def test_shutdown_during_initial_model_loading_waits_then_frees(fake_mlx):
     assert result["out"][0] == "ok"                             # the load completed, nothing vanished mid-use
     assert not models.loaded() and models._timer is None
 
-
 def test_idle_timer_never_reschedules_after_shutdown(fake_mlx, monkeypatch):
     monkeypatch.setattr(config, "RAG_IDLE_UNLOAD_S", 0.05)
     llm = models.shared_llm()
@@ -239,7 +223,6 @@ def test_idle_timer_never_reschedules_after_shutdown(fake_mlx, monkeypatch):
     time.sleep(0.3)
     assert models._timer is None
 
-
 # ---------------------------------------------------------------- integration
 
 def _hash_index(monkeypatch):
@@ -247,7 +230,6 @@ def _hash_index(monkeypatch):
     monkeypatch.setattr(embedder, "_cache", {})
     monkeypatch.setattr(indexer, "_clients", {})
     jobs._export_state.update(pending=0, last=0.0)
-
 
 def test_graph_extraction_runs_inside_the_heavy_lock(monkeypatch):
     from test_graph_sync import FakeLLM, FakeStore, triton_reel
@@ -266,7 +248,6 @@ def test_graph_extraction_runs_inside_the_heavy_lock(monkeypatch):
         indexer.release_writer()
     assert seen and set(seen) == {"graph extraction"}
 
-
 def test_graph_sync_uses_the_shared_llm_when_none_is_given(monkeypatch, fake_mlx):
     from test_graph_sync import FakeStore, triton_reel
     monkeypatch.setattr(gs, "extractor_version", lambda model_id=None: "x-shared")
@@ -279,7 +260,6 @@ def test_graph_sync_uses_the_shared_llm_when_none_is_given(monkeypatch, fake_mlx
     finally:
         indexer.release_writer()
     assert fake_mlx.instances == 1 and models._shared is not None  # the shared copy, not a private one
-
 
 def test_index_embedding_runs_inside_the_heavy_lock(monkeypatch):
     from test_indexer import add
@@ -298,7 +278,6 @@ def test_index_embedding_runs_inside_the_heavy_lock(monkeypatch):
         indexer.release_writer()
     assert seen and set(seen) == {"index embedding"}
 
-
 def test_background_graph_sync_yields_to_interactive_requests_and_to_capture(monkeypatch):
     monkeypatch.setattr(gs, "_stop", threading.Event())          # independent of other tests' gs.stop()
     assert gs._idle() is True
@@ -308,7 +287,6 @@ def test_background_graph_sync_yields_to_interactive_requests_and_to_capture(mon
     jobs.create_session("instagram-live", "instagram", 0)                  # capture in progress
     assert gs._idle() is False
 
-
 # ---------------------------------------------------------------- Phase 4C: configurable answer model
 
 def test_answer_model_follows_rag_llm_and_each_model_has_one_instance(fake_mlx, monkeypatch):
@@ -316,7 +294,6 @@ def test_answer_model_follows_rag_llm_and_each_model_has_one_instance(fake_mlx, 
     a, g = models.shared_llm(), models.shared_llm(config.GRAPH_LLM)
     assert a.model_id == "answer-model" and g.model_id == config.GRAPH_LLM and a is not g
     assert models.shared_llm() is a and models.shared_llm(config.GRAPH_LLM) is g and fake_mlx.instances == 2
-
 
 def test_only_one_model_is_resident_at_a_time(fake_mlx, monkeypatch):
     monkeypatch.setattr(config, "RAG_LLM", "answer-model")
@@ -331,7 +308,6 @@ def test_only_one_model_is_resident_at_a_time(fake_mlx, monkeypatch):
         g.generate("s", "u")
     assert models.resident() == [config.GRAPH_LLM] and a._inner.loads == 1 and g._inner.loads == 2
 
-
 def test_idle_unload_and_shutdown_free_every_model(fake_mlx, monkeypatch):
     monkeypatch.setattr(config, "RAG_LLM", "answer-model")
     a = models.shared_llm()
@@ -343,7 +319,6 @@ def test_idle_unload_and_shutdown_free_every_model(fake_mlx, monkeypatch):
         a.generate("s", "u")
     models.shutdown()
     assert models.resident() == []
-
 
 def test_graph_sync_keeps_using_the_extraction_model_when_answers_use_another(monkeypatch, fake_mlx):
     from test_graph_sync import FakeStore, triton_reel

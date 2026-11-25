@@ -39,7 +39,6 @@ ECHO_HIGH, ECHO_LOW = 0.6, 0.3
 ECHO_MERGE = 0.5            # fragments merge into a caption only if at least this much is spoken
 REPEAT_SIMILAR = 0.9        # repeated on-screen text consolidated into one segment with occurrences
 
-
 @dataclass
 class Line:
     text: str
@@ -49,7 +48,6 @@ class Line:
     @property
     def h(self) -> float:
         return self.box[3] - self.box[1]
-
 
 @dataclass
 class _Seg:
@@ -65,7 +63,6 @@ class _Seg:
                 "confidence": round(float(np.mean(self.confs)), 1), "frames": self.frames,
                 "box": [round(v, 3) for v in self.box]}
 
-
 # ---------------------------------------------------------------- per-frame OCR
 
 def _prepare(img: Image.Image) -> Image.Image:
@@ -75,7 +72,6 @@ def _prepare(img: Image.Image) -> Image.Image:
     if np.asarray(g).mean() < 128:     # light text on dark background → invert for Tesseract
         g = ImageOps.invert(g)
     return ImageOps.autocontrast(g)
-
 
 def ocr_lines(img: Image.Image) -> list[Line]:
     """Tesseract lines built from words with conf ≥ MIN_WORD_CONF, with normalized boxes."""
@@ -98,7 +94,6 @@ def ocr_lines(img: Image.Image) -> list[Line]:
                           float(np.mean([float(d["conf"][i]) for i in idx])), (x0, y0, x1, y1)))
     return lines
 
-
 def noise_reason(line: Line) -> str | None:
     """Why a line is OCR junk (texture/edge artifacts), or None to keep it. Conservative: short but
     confident tokens ("AI", "x86", "WSL") are kept."""
@@ -114,7 +109,6 @@ def noise_reason(line: Line) -> str | None:
     if all(len(w) <= 2 for w in words) and line.conf < 85:
         return "short_tokens_low_conf"  # "RQ", "ee", "Ag"
     return None
-
 
 def group_blocks(lines: list[Line]) -> list[Line]:
     """Merge vertically adjacent lines of similar height that overlap horizontally (one caption or
@@ -138,20 +132,16 @@ def group_blocks(lines: list[Line]) -> list[Line]:
                          max(x.box[2] for x in b), max(x.box[3] for x in b))))
     return out
 
-
 # ---------------------------------------------------------------- temporal processing
 
 def _thumb(img: Image.Image) -> np.ndarray:
     return np.asarray(ImageOps.grayscale(img).resize((THUMB, THUMB)), dtype=np.float32)
 
-
 def _is_duplicate(a: np.ndarray, b: np.ndarray) -> bool:
     return float((np.abs(a - b) > PIXEL_CHANGE).mean()) < DUP_CHANGED_FRAC
 
-
 def _similar(a: str, b: str) -> bool:
     return SequenceMatcher(None, norm(a), norm(b)).ratio() >= SIMILAR
-
 
 def merge_text(a: str, b: str) -> str:
     """Join consecutive caption fragments, collapsing rolling/karaoke overlap
@@ -167,14 +157,12 @@ def merge_text(a: str, b: str) -> str:
             return f"{a} {' '.join(b.split()[k:])}".strip()
     return f"{a} {b}"
 
-
 def _speech_words(transcript_segments: list[dict] | None, start: float, end: float, pad: float) -> set[str]:
     words: set[str] = set()
     for t in transcript_segments or []:
         if t["end"] >= start - pad and t["start"] <= end + pad:
             words.update(norm(t["text"]).split())
     return words
-
 
 def echo_score(text: str, speech: set[str]) -> float:
     """Share of OCR tokens also spoken nearby (fuzzy for longer words, since both OCR and Whisper err)."""
@@ -185,12 +173,10 @@ def echo_score(text: str, speech: set[str]) -> float:
               (len(w) >= 4 and any(SequenceMatcher(None, w, x).ratio() >= 0.8 for x in speech if len(x) >= 3)))
     return hit / len(tokens)
 
-
 def echo_label(score: float | None) -> str:
     if score is None:
         return "unknown"          # no transcript to compare against
     return "speech_echo" if score >= ECHO_HIGH else "partial_echo" if score >= ECHO_LOW else "on_screen"
-
 
 def annotate_echo(segs: list[dict], transcript_segments: list[dict] | None, interval_s: float) -> None:
     """Label (never delete) each segment by overlap with words spoken around the same time.
@@ -202,7 +188,6 @@ def annotate_echo(segs: list[dict], transcript_segments: list[dict] | None, inte
         sc = echo_score(s["text"], _speech_words(transcript_segments, s["start"], s["end"], ECHO_PAD_S + interval_s))
         s["echo"] = {"score": round(sc, 2), "label": echo_label(sc)}
 
-
 def _same_caption_geometry(a: list, b: list, size_range: tuple = (0.7, 1.4)) -> bool:
     """Same band, similar font size, similar horizontal centre."""
     ha, hb = a[3] - a[1], b[3] - b[1]
@@ -210,10 +195,8 @@ def _same_caption_geometry(a: list, b: list, size_range: tuple = (0.7, 1.4)) -> 
             and size_range[0] <= hb / max(ha, 1e-6) <= size_range[1]
             and abs((a[0] + a[2]) / 2 - (b[0] + b[2]) / 2) <= X_CENTER_TOL)
 
-
 # Caption tools auto-shrink long lines; when BOTH fragments are strongly confirmed by speech, tolerate that.
 CONFIRMED_SIZE_RANGE = (0.5, 2.0)
-
 
 def merge_subtitles(raw: list[dict], interval_s: float, transcript_segments: list[dict] | None = None,
                     geometry: bool = True) -> list[dict]:
@@ -284,7 +267,6 @@ def merge_subtitles(raw: list[dict], interval_s: float, transcript_segments: lis
         s["id"] = i
     return out
 
-
 def consolidate_repeats(segs: list[dict]) -> list[dict]:
     """Collapse non-adjacent repeats of the same on-screen text into one segment that keeps every
     occurrence (time range) and every raw part, so nothing is lost but duplication drops."""
@@ -306,11 +288,9 @@ def consolidate_repeats(segs: list[dict]) -> list[dict]:
         s["id"] = i
     return out
 
-
 _WORDS: set[str] | None = None
 FRAGMENT_MAX_WORDS = 2
 FRAGMENT_LOW_CONF = 80
-
 
 def _wordlist() -> set[str]:
     """System word list (lower-case). Empty if unavailable → no token is treated as a non-word scrap,
@@ -323,7 +303,6 @@ def _wordlist() -> set[str]:
         except OSError:
             _WORDS = set()
     return _WORDS
-
 
 def label_quality(segs: list[dict], raw: list[dict], transcript_segments: list[dict] | None,
                   context_text: str | None) -> None:
@@ -366,7 +345,6 @@ def label_quality(segs: list[dict], raw: list[dict], transcript_segments: list[d
                 reasons += [f"low_conf:{s['confidence']}"] if s["confidence"] < FRAGMENT_LOW_CONF else []
         s["quality"] = "fragment" if reasons else "normal"
         s["quality_reasons"] = reasons
-
 
 def ocr_frames(frames: list[tuple[float, bytes]], interval_s: float = 1.0,
                transcript_segments: list[dict] | None = None, context_text: str | None = None) -> dict:
@@ -440,7 +418,6 @@ def ocr_frames(frames: list[tuple[float, bytes]], interval_s: float = 1.0,
             "status": status, "error": error, **stats,
             "segments": merged, "raw_segments": raw, "filtered_segments": filtered,
             "text": "\n".join(s["text"] for s in merged)}
-
 
 def _tess_version() -> str:
     try:

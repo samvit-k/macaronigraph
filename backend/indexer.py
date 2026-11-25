@@ -55,16 +55,11 @@ CREATE TABLE IF NOT EXISTS index_state (
 K_ACTIVE, K_BUILDING, K_BUILD, K_LAST, K_RETIRED = (
     "index.active", "index.building", "index.build_status", "index.last_sync", "index.retired")
 
-
 class IndexNotReady(RuntimeError):
     pass
 
-
 class WriterBusy(RuntimeError):
     pass
-
-
-
 
 @contextmanager
 def _db():
@@ -72,18 +67,15 @@ def _db():
         con.executescript(SCHEMA)
         yield con
 
-
 def _ensure_schema() -> None:
     with _db():
         pass
-
 
 # ---------------------------------------------------------------- writer lock
 
 _fd_lock = threading.Lock()        # guards _lock_fd and the client cache
 _write_lock = threading.RLock()    # held for the whole duration of any index write
 _lock_fd = None
-
 
 def acquire_writer() -> bool:
     """Take the cross-process writer lock (non-blocking). True if this process holds it."""
@@ -102,7 +94,6 @@ def acquire_writer() -> bool:
         _lock_fd = fd
         return True
 
-
 def release_writer() -> bool:
     """Release the cross-process lock — never while another thread is inside a write. → released?"""
     global _lock_fd
@@ -118,10 +109,8 @@ def release_writer() -> bool:
     finally:
         _write_lock.release()
 
-
 def holds_writer() -> bool:
     return _lock_fd is not None
-
 
 @contextmanager
 def writing():
@@ -136,11 +125,9 @@ def writing():
             if not held:
                 release_writer()
 
-
 # ---------------------------------------------------------------- chroma
 
 _clients: dict[str, object] = {}
-
 
 def client():
     import chromadb
@@ -153,18 +140,14 @@ def client():
             _clients[path] = chromadb.PersistentClient(path=path, settings=Settings(anonymized_telemetry=False))
         return _clients[path]
 
-
 def collections() -> list[str]:
     return [c.name for c in client().list_collections()]
-
 
 def get_collection(name: str):
     return client().get_collection(name, embedding_function=None)
 
-
 def spec_of(col) -> dict:
     return json.loads(col.metadata["spec"])
-
 
 def _create_collection(spec: dict) -> str:
     name = f"reels_{embedder.signature(spec)}_{time.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:4]}"
@@ -173,29 +156,24 @@ def _create_collection(spec: dict) -> str:
                                          "signature": embedder.signature(spec), "created_at": db.utc_now()})
     return name
 
-
 def _drop_collection(name: str) -> None:
     if name in collections():
         client().delete_collection(name)
     with jobs.tx() as con:
         con.execute("DELETE FROM index_state WHERE collection=?", (name,))
 
-
 def active_collection() -> str | None:
     name = jobs.get_meta(K_ACTIVE)
     return name if name and name in collections() else None
-
 
 def _meta_json(key: str):
     v = jobs.get_meta(key)
     return json.loads(v) if v else None
 
-
 # ---------------------------------------------------------------- readers + retirement of replaced collections
 
 _readers: Counter = Counter()
 _readers_lock = threading.Lock()
-
 
 @contextmanager
 def reading():
@@ -211,11 +189,9 @@ def reading():
             with _readers_lock:
                 _readers[name] -= 1
 
-
 def _retire(name: str) -> None:
     retired = [r for r in (_meta_json(K_RETIRED) or []) if r["name"] != name]
     jobs.set_meta(K_RETIRED, json.dumps(retired + [{"name": name, "at": time.time()}]))
-
 
 def cleanup_retired(now: float | None = None) -> list[str]:
     """Drop retired collections that are past the grace period and not in use by any search here."""
@@ -235,7 +211,6 @@ def cleanup_retired(now: float | None = None) -> list[str]:
         jobs.set_meta(K_RETIRED, json.dumps(keep))
     return dropped
 
-
 # ---------------------------------------------------------------- SQLite side (read-only for jobs tables)
 
 def eligible() -> dict[str, dict]:
@@ -246,7 +221,6 @@ def eligible() -> dict[str, dict]:
     return {r["reel_id"]: {"source": r["source"], "aid": r["aid"], "status": r["status"]}
             for r in rows if r["status"] in ELIGIBLE}
 
-
 def load_record(attempt_id: int) -> dict:
     with _db() as con:
         row = con.execute("SELECT record FROM attempts WHERE attempt_id=?", (attempt_id,)).fetchone()
@@ -254,12 +228,10 @@ def load_record(attempt_id: int) -> dict:
         raise KeyError(f"attempt {attempt_id} not found")
     return json.loads(row["record"])
 
-
 def state_rows(collection: str) -> dict[str, dict]:
     with _db() as con:
         return {r["reel_id"]: dict(r) for r in
                 con.execute("SELECT * FROM index_state WHERE collection=?", (collection,))}
-
 
 def _write_state(collection: str, rid: str, aid: int | None, h: str | None, ids: list[str], status: str,
                  error: str | None = None) -> None:
@@ -271,7 +243,6 @@ def _write_state(collection: str, rid: str, aid: int | None, h: str | None, ids:
                          status=excluded.status, error=excluded.error, indexed_at=excluded.indexed_at""",
                     (collection, rid, aid, h, json.dumps(ids), len(ids), status, error, db.utc_now()))
 
-
 def _write_error(collection: str, rid: str, aid: int, prev: dict | None, msg: str) -> None:
     """Record a failed (re)index WITHOUT forgetting the last successful one: the row keeps the previously
     committed attempt id, content hash and chunk_ids, so those chunks stay protected and searchable. The row's
@@ -282,12 +253,10 @@ def _write_error(collection: str, rid: str, aid: int, prev: dict | None, msg: st
     else:
         _write_state(collection, rid, aid, None, [], "error", f"attempt {aid}: {msg}")
 
-
 def _delete_state(collection: str, rids: list[str]) -> None:
     if rids:
         with jobs.tx() as con:
             con.executemany("DELETE FROM index_state WHERE collection=? AND reel_id=?", [(collection, r) for r in rids])
-
 
 # ---------------------------------------------------------------- sync
 
@@ -302,13 +271,11 @@ def _apply(col, collection: str, rid: str, aid: int, chunks: list[dict], vecs, h
         col.delete(ids=sorted(obsolete))
     _write_state(collection, rid, aid, h, ids, "indexed" if chunks else "empty")
 
-
 def _remove_reel(col, collection: str, rid: str) -> None:
     ids = col.get(where={"reel_id": rid}, include=[])["ids"]
     if ids:
         col.delete(ids=ids)
     _delete_state(collection, [rid])
-
 
 def sweep_orphans(col, collection: str, elig: dict) -> int:
     """Delete every chunk the bookkeeping does not expect: chunks of ineligible / unrecorded Reels, and chunks
@@ -323,7 +290,6 @@ def sweep_orphans(col, collection: str, elig: dict) -> int:
     if orphans:
         col.delete(ids=orphans)
     return len(orphans)
-
 
 def sync_collection(collection: str, should_continue=None) -> dict:
     """Bring one collection up to date with SQLite (with its own embedding model). When `should_continue()`
@@ -411,10 +377,8 @@ def sync_collection(collection: str, should_continue=None) -> dict:
     st["duration_s"] = round(time.time() - t0, 2)
     return st
 
-
 def _changed(st: dict) -> bool:
     return any(st[k] for k in ("embedded", "unchanged_hash", "removed", "orphans_deleted", "errors"))
-
 
 # ---------------------------------------------------------------- verification
 
@@ -469,12 +433,10 @@ def verify(collection: str) -> dict:
     return {"collection": collection, "ok": not problems, "problems": problems,
             "counts": {"eligible": len(elig), "rows": len(rows), "chunks": len(ids), "expected_chunks": len(expected_ids)}}
 
-
 # ---------------------------------------------------------------- rebuild / sync orchestration
 
 def _set_build(state: str, **kw) -> None:
     jobs.set_meta(K_BUILD, json.dumps({"state": state, "at": db.utc_now(), **kw}))
-
 
 def build(force: bool = False, should_continue=None) -> dict:
     """Build (or resume building) a collection for the current spec; activate it only once verified."""
@@ -524,7 +486,6 @@ def build(force: bool = False, should_continue=None) -> dict:
         _set_build("activated", collection=building, replaced=active)
         return {**result, "state": "activated"}
 
-
 def sync_all(rebuild: bool = False, should_continue=None) -> dict:
     """Keep the active collection current; build/resume a new one when needed (or forced)."""
     with writing():
@@ -552,7 +513,6 @@ def sync_all(rebuild: bool = False, should_continue=None) -> dict:
         out["duration_s"] = round(time.time() - t0, 2)
         jobs.set_meta(K_LAST, json.dumps(out))
         return out
-
 
 # ---------------------------------------------------------------- idle gate + background thread
 
@@ -584,13 +544,11 @@ def busy_reason(quiet_s: float | None = None, now: float | None = None) -> str |
                 return f"waiting for a quiet period ({int(quiet_s - (now - last))} s left)"
     return None
 
-
 _thread: threading.Thread | None = None
 _stop = threading.Event()
 _wake = threading.Event()
 _requests: list[dict] = []
 _state = {"running": False, "busy": None, "last_error": None}
-
 
 def _run(fn, **kw) -> dict | None:
     _state["running"] = True
@@ -604,7 +562,6 @@ def _run(fn, **kw) -> dict | None:
         return None
     finally:
         _state["running"] = False
-
 
 def _loop() -> None:
     while not _stop.is_set():
@@ -629,7 +586,6 @@ def _loop() -> None:
         if reason is None:
             _run(sync_all, should_continue=lambda: not _stop.is_set() and busy_reason() is None)
 
-
 def start() -> None:
     global _thread
     _stop.clear()
@@ -638,7 +594,6 @@ def start() -> None:
         _thread = threading.Thread(target=_loop, name="reel-indexer", daemon=True)
         _thread.start()
     _wake.set()
-
 
 def stop() -> bool:
     """Stop the indexer thread. The writer lock is released only once the thread has exited (and no write
@@ -652,7 +607,6 @@ def stop() -> bool:
             return False
     return release_writer()
 
-
 def request_sync(rebuild: bool = False, wait: bool = False) -> dict:
     """Manual sync: always allowed (even while capture runs)."""
     if wait or _thread is None or not _thread.is_alive():
@@ -660,7 +614,6 @@ def request_sync(rebuild: bool = False, wait: bool = False) -> dict:
     _requests.append({"rebuild": rebuild})
     _wake.set()
     return {"accepted": True, "queued_requests": len(_requests)}
-
 
 # ---------------------------------------------------------------- search
 
@@ -673,7 +626,6 @@ def _where(source: str | None, types: list[str] | None) -> dict | None:
         clauses.append({"content_type": {"$in": kinds}})
     return None if not clauses else clauses[0] if len(clauses) == 1 else {"$and": clauses}
 
-
 def _hit(cid: str, doc: str, md: dict, dist: float) -> dict:
     sim = 1.0 - float(dist)
     weight = config.FRAGMENT_WEIGHT if "fragment" in (md.get("ocr_quality") or "") else 1.0
@@ -684,7 +636,6 @@ def _hit(cid: str, doc: str, md: dict, dist: float) -> dict:
             "passage_ids": json.loads(md.get("passage_ids") or "[]"),
             "_reel": {k: md.get(k) for k in ("source", "source_url", "owner_username", "caption_short", "saved_at",
                                              "record_status")}}
-
 
 def search(q: str, k: int = 10, source: str | None = "instagram", types: list[str] | None = None,
            group: str = "reel", per_reel: int = 3) -> dict:
@@ -715,7 +666,6 @@ def search(q: str, k: int = 10, source: str | None = "instagram", types: list[st
     out["results"] = list(reels.values())[:k]
     return out
 
-
 # ---------------------------------------------------------------- status
 
 def status() -> dict:
@@ -740,7 +690,6 @@ def status() -> dict:
     else:
         out.update(eligible=len(elig), indexed=0, pending=len(elig))
     return out
-
 
 def _main(argv: list[str]) -> int:
     cmd = argv[1] if len(argv) > 1 else "status"
@@ -775,7 +724,6 @@ def _main(argv: list[str]) -> int:
         print(__doc__)
         return 2
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(_main(sys.argv))

@@ -37,13 +37,11 @@ ABLATIONS = {"hybrid-no-comention": {"co_mention": False}, "hybrid-no-relations"
 GRID = {"min_specificity": [0.55, 0.65, 0.75], "rel_frac": [0.5, 0.6, 0.7], "protect_top": [2, 3],
         "w_co_mention": [0.4, 0.6, 1.0], "reserve_graph": [2, 4]}
 
-
 def require(path: Path) -> Path:
     if not path.is_file():
         sys.exit(f"{path.relative_to(ROOT)} not found: this private evaluation dataset is not part of the repository "
                  "(see README, Evaluation)")
     return path
-
 
 def load(split: str | None):
     raw = require(DATASET).read_bytes()
@@ -52,7 +50,6 @@ def load(split: str | None):
         sys.exit(f"dataset changed (sha256 {sha[:12]} ≠ frozen {FROZEN_SHA256[:12]}): refusing to evaluate")
     qs = json.loads(raw)["questions"]
     return [q for q in qs if split in (None, q["split"])], sha
-
 
 def items(qs, include_multi=False):
     """Single-question items; multi-turn first turns only unless include_multi (needs real citations)."""
@@ -66,7 +63,6 @@ def items(qs, include_multi=False):
         else:
             yield q
 
-
 # ---------------------------------------------------------------- retrieval metrics
 
 def _rank_metrics(reels: list[str], relevant: set[str]) -> dict:
@@ -78,7 +74,6 @@ def _rank_metrics(reels: list[str], relevant: set[str]) -> dict:
     rr = next((1 / (i + 1) for i, r in enumerate(reels[:20]) if r in relevant), 0.0)
     out["mrr"] = rr
     return out
-
 
 def score_item(item, res: dict, vector_pack: set[str] | None) -> dict:
     rel, acc = set(item.get("relevant", [])), set(item.get("acceptable", []))
@@ -102,7 +97,6 @@ def score_item(item, res: dict, vector_pack: set[str] | None) -> dict:
                                 "relevant": s["reel_id"] in rel | acc} for s in added]
     return out
 
-
 def summarize(rows: list[dict]) -> dict:
     def mean(key, sub):
         vals = [r[key] for r in sub if key in r]
@@ -124,7 +118,6 @@ def summarize(rows: list[dict]) -> dict:
     out["latency_s"] = {"median": round(statistics.median(lat), 3), "max": round(max(lat), 3)} if lat else None
     return out
 
-
 def run_retrieval(qs, params: dict, modes=MODES, ablations=True) -> dict:
     results = {}
     vec_packs = {}
@@ -141,7 +134,6 @@ def run_retrieval(qs, params: dict, modes=MODES, ablations=True) -> dict:
         results[name] = {"summary": summarize(rows), "items": rows}
     return results
 
-
 # ---------------------------------------------------------------- tuning (dev only)
 
 def objective(res: dict) -> tuple:
@@ -151,7 +143,6 @@ def objective(res: dict) -> tuple:
     if (h["hit@5"] or 0) < (v["hit@5"] or 0):
         return (-1,)
     return (h["recall@10"] or 0, h["pack_coverage"] or 0, h["added_precision"] or 0)
-
 
 def tune(qs) -> dict:
     keys = list(GRID)
@@ -163,7 +154,6 @@ def tune(qs) -> dict:
                        "vector": res["vector"]["summary"]["ALL"]})
     trials.sort(key=lambda t: t["objective"], reverse=True)
     return {"grid": GRID, "best": trials[0], "top5": trials[:5], "n_trials": len(trials)}
-
 
 # ---------------------------------------------------------------- answers (local LLM)
 
@@ -198,7 +188,6 @@ def run_answers(qs, params: dict, mode: str) -> dict:
     return {"items": rows, "auto": answer_auto_metrics(rows),
             "peak_rss_gb": round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1e9, 2)}
 
-
 def answer_auto_metrics(rows: list[dict]) -> dict:
     """Automatic answer metrics; faithfulness is judged manually (saved separately)."""
     ans = [r for r in rows if r["expect"] in ("answer", "qualify", "disambiguate")]
@@ -226,7 +215,6 @@ def answer_auto_metrics(rows: list[dict]) -> dict:
         "quote_exactness": "enforced by validation (quotes not found are removed and counted in removed_sentences)",
     }
 
-
 # ---------------------------------------------------------------- Phase 3 baseline
 
 def run_baseline(params: dict) -> dict:
@@ -241,7 +229,6 @@ def run_baseline(params: dict) -> dict:
         out[mode]["hit@1"] = round(statistics.mean(float(r["mrr"] == 1.0) for r in rows), 3)
         out[mode]["n"] = len(rows)
     return out
-
 
 def main(argv=None):
     ap = argparse.ArgumentParser()
@@ -284,7 +271,6 @@ def main(argv=None):
         print(json.dumps(res["baseline"], indent=1))
     else:
         print(json.dumps(res["answers"]["auto"], indent=1))
-
 
 if __name__ == "__main__":
     main()

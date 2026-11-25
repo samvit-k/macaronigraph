@@ -10,7 +10,6 @@ from test_indexer import add
 
 client = TestClient(app)   # no lifespan: background threads are not started
 
-
 @pytest.fixture(autouse=True)
 def offline(isolated_output, monkeypatch):
     monkeypatch.setattr(config, "NEO4J_URI", f"bolt://127.0.0.1:{free_port()}")
@@ -22,14 +21,12 @@ def offline(isolated_output, monkeypatch):
     with production_path_guard(isolated_output):
         yield
 
-
 @pytest.mark.parametrize("path", ["/api/graph/verify", "/api/graph/reel/A", "/api/graph/concept?name=CUDA",
                                   "/api/graph/shared", "/api/graph/between?a=CUDA&b=Triton",
                                   "/api/graph/evidence?a=CUDA&b=Triton"])
 def test_graph_queries_report_503_when_neo4j_is_offline(path):
     r = client.get(path)
     assert r.status_code == 503 and "offline" in r.json()["detail"]
-
 
 def test_status_reports_offline_and_backend_keeps_working(monkeypatch):
     add("A", "Triton is built on top of CUDA")
@@ -40,7 +37,6 @@ def test_status_reports_offline_and_backend_keeps_working(monkeypatch):
     assert client.get("/api/status").status_code == 200
     assert client.get("/api/search", params={"q": "Triton CUDA"}).json()["results"][0]["reel_id"] == "A"
 
-
 def test_manual_sync_while_offline_does_not_fail_and_needs_no_llm_when_deferred(monkeypatch):
     add("A", "Triton is built on top of CUDA")
     jobs.create_session("instagram-live", "instagram", 0)          # capture active → extraction deferred
@@ -48,7 +44,6 @@ def test_manual_sync_while_offline_does_not_fail_and_needs_no_llm_when_deferred(
     monkeypatch.setattr(gs, "extractor_version", lambda model_id=None: "x-test")
     r = client.post("/api/graph/sync", params={"wait": 1}).json()
     assert r["online"] is False and r["deferred"] == 1 and r["extracted"] == 0
-
 
 def test_unknown_request_id_is_404():
     assert client.get("/api/graph/request/999999").status_code == 404

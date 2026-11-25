@@ -12,9 +12,7 @@ MIN_COVERAGE = 0.9
 TRANSCRIPT_DONE = {"ok", "skipped"}   # "skipped" = measured silent; transcription deliberately not run
 OCR_DONE = {"ok"}                     # "ok" with zero segments is a valid "no on-screen text" result
 
-
 MUTED_MIN_S, MUTED_MAX_FRACTION = 1.0, 0.15
-
 
 def muted_too_long(capture: dict) -> bool:
     """Muted long enough that speech may be missing. Legacy captures without a measured duration keep the
@@ -26,14 +24,12 @@ def muted_too_long(capture: dict) -> bool:
         return True
     return muted_s > max(MUTED_MIN_S, MUTED_MAX_FRACTION * (capture.get("captured_s") or 0))
 
-
 def warnings_for(capture: dict) -> list[str]:
     """Non-fatal observations recorded on the record (they never change the status)."""
     w = []
     if capture.get("muted") and capture.get("muted_s") is not None and not muted_too_long(capture):
         w.append(f"briefly_muted: {capture['muted_s']:.1f}s of {capture.get('captured_s') or 0:.1f}s")
     return w
-
 
 def decide_status(capture: dict, transcript: dict | None, ocr: dict | None) -> tuple[str, list[str]]:
     """→ (status, errors). status ∈ ok | ok_no_speech | partial | failed.
@@ -83,7 +79,6 @@ def decide_status(capture: dict, transcript: dict | None, ocr: dict | None) -> t
         return "ok_no_speech", []
     return "partial", [f"unclassified_audio: {t.get('audio_class')}"]
 
-
 def passages(reel_id: str, url: str, caption: str, transcript: dict | None, ocr: dict | None) -> list[dict]:
     """Provenance-tagged text units (input for Phase 3 chunking/indexing; nothing is indexed here)."""
     out = []
@@ -101,7 +96,6 @@ def passages(reel_id: str, url: str, caption: str, transcript: dict | None, ocr:
             ocr_kind=s.get("kind", "text"), ocr_parts=s.get("parts"),
             ocr_echo=(s.get("echo") or {}).get("label"), ocr_quality=s.get("quality", "normal"))
     return out
-
 
 def build_record(post: dict | None, capture: dict, transcript: dict | None, ocr: dict | None) -> dict:
     reel_id = capture.get("reel_id") or (post or {}).get("reel_id")

@@ -52,7 +52,6 @@ _GENERIC_CAPS = frozenset("""the reel reels this that these those it its a an an
 inference sources source according creator speaker video videos also however additionally finally first second
 third step round yes no""".split())
 
-
 # ---------------------------------------------------------------- deterministic checks
 
 def numbers(text: str) -> set[float]:
@@ -70,14 +69,11 @@ def numbers(text: str) -> set[float]:
         out.add(v)
     return out
 
-
 def _words(s: str) -> set[str]:
     return {w[:6] for w in re.findall(r"[a-z0-9]+", s.lower()) if len(w) > 2}
 
-
 def _sentences(text: str) -> list[str]:
     return [x for x in re.split(r"(?<=[.!?])\s+|\n+", text) if x.strip()]
-
 
 def checks(claim: str, passages: list[dict], question: str) -> dict:
     """→ {"hard": [...], "soft": [...]} (machine-readable reasons)."""
@@ -111,7 +107,6 @@ def checks(claim: str, passages: list[dict], question: str) -> dict:
         soft.append("supported only by on-screen text (OCR)")
     return {"hard": hard, "soft": soft}
 
-
 # ---------------------------------------------------------------- multi-part questions (coverage)
 
 _PART_SPLIT = re.compile(r",?\s+and\s+(?=(?:what|when|where|which|who|whom|how|why|is|are|does|do|did|can|could|"
@@ -119,7 +114,6 @@ _PART_SPLIT = re.compile(r",?\s+and\s+(?=(?:what|when|where|which|who|whom|how|w
 _CMP_Q = re.compile(r"\b(?:compare|compared|comparison|difference|differ|versus|vs\.?)\b", re.I)
 _N_THINGS = re.compile(r"\b(?:the\s+)?(two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:main\s+|key\s+|biggest\s+)?"
                        r"(?:things|steps|parts|tips|ways|reasons|items|tools|rules|habits|points)\b", re.I)
-
 
 def parts(question: str) -> list[str]:
     """Components of a multi-part question, or [] for a simple one (no decomposition)."""
@@ -133,7 +127,6 @@ def parts(question: str) -> list[str]:
     if _CMP_Q.search(q):
         return ["both sides of the comparison"]
     return []
-
 
 # ---------------------------------------------------------------- model passes
 
@@ -170,12 +163,10 @@ If a claim cannot be fixed from the passages, return "t":"" for it. If a missing
 passages, do not write a sentence for it.
 Reply: {{"r":[{{"id":"C1","t":"<fixed sentence or empty>","c":["S1"]}}],"add":[{{"t":"<sentence answering a missing part>","c":["S2"]}}]}}"""
 
-
 def _passage_block(sources: list[dict], sids: list[str]) -> str:
     by = {s["sid"]: s for s in sources}
     return "\n".join(f"<passage id=\"{sid}\" type=\"{by[sid].get('content_type')}\">\n"
                      f"{' '.join(str(by[sid]['text']).split())[:1500]}\n</passage>" for sid in sids if sid in by)
-
 
 def _json(text) -> dict:
     t = re.sub(r"^```(?:json)?|```$", "", (text or "").strip(), flags=re.M).strip()
@@ -188,11 +179,9 @@ def _json(text) -> dict:
     except (json.JSONDecodeError, RecursionError):
         return {}
 
-
 def _quote_ok(q: str, texts: list[str]) -> bool:
     q = norm_text(q or "")
     return len(q.split()) >= 3 and any(f" {q} " in f" {norm_text(t)} " for t in texts)
-
 
 def _verify_call(llm, claims: list[dict], sources: list[dict], qparts: list[str]) -> tuple[dict, dict]:
     sids = list(dict.fromkeys(c for cl in claims for c in cl["citations"]))
@@ -206,7 +195,6 @@ def _verify_call(llm, claims: list[dict], sources: list[dict], qparts: list[str]
     text, st = llm.generate(VERIFY_SYSTEM, VERIFY_USER.format(passages=_passage_block(sources, sids), claims=cl_block,
                                                               parts_block=pb, parts_reply=pr), max_tokens=VERIFY_TOKENS)
     return _json(text), {"raw": text if isinstance(text, str) else repr(text), "stats": st if isinstance(st, dict) else {}}
-
 
 def _decide(claims: list[dict], data: dict, sources: list[dict]) -> None:
     by = {s["sid"]: s for s in sources}
@@ -235,12 +223,10 @@ def _decide(claims: list[dict], data: dict, sources: list[dict]) -> None:
         else:
             cl["decision"] = "keep"
 
-
 def _claims(sentences: list[dict], sources: list[dict], question: str) -> list[dict]:
     by = {s["sid"]: s for s in sources}
     return [{"text": s["text"], "citations": list(s["citations"]), "kind": s["kind"],
              "checks": checks(s["text"], [by[c] for c in s["citations"] if c in by], question)} for s in sentences]
-
 
 def check(question: str, retrieval: dict, out: dict, llm, mode: str = "drop", coverage: bool = False) -> dict:
     """Verify (and optionally repair) a validated draft answer. Must run inside models.heavy() (re-entrant)."""
@@ -294,7 +280,6 @@ def check(question: str, retrieval: dict, out: dict, llm, mode: str = "drop", co
                text=answer.render(final, missing if final else "", status, out.get("conflict", False)),
                verification=ver)
     return out
-
 
 def _repair(question: str, sources: list[dict], problems: list[dict], missing_parts: list[str], llm):
     """One repair call, then deterministic validation and ONE re-verification call of everything it produced."""

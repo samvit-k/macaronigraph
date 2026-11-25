@@ -23,25 +23,20 @@ from contextlib import contextmanager
 
 from . import config
 
-
 class HeavyBusy(RuntimeError):
     """The heavy-work lock could not be acquired within the timeout."""
-
 
 _tlock = threading.Lock()
 _owner: dict = {"thread": None, "depth": 0, "purpose": None, "since": None}
 _interactive = 0
 _interactive_lock = threading.Lock()
 
-
 def _lock_path():
     config.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     return config.OUTPUT_DIR / ".heavy-work.lock"
 
-
 def held_by_me() -> bool:
     return _owner["thread"] == threading.get_ident()
-
 
 @contextmanager
 def heavy(purpose: str, timeout: float | None = None):
@@ -86,11 +81,9 @@ def heavy(purpose: str, timeout: float | None = None):
         finally:
             _tlock.release()                                    # always, even if file cleanup failed
 
-
 def holder() -> dict | None:
     """What holds the heavy lock in this process (None if free here; another process may still hold it)."""
     return None if _owner["thread"] is None else {"purpose": _owner["purpose"], "since": _owner["since"]}
-
 
 @contextmanager
 def interactive():
@@ -104,10 +97,8 @@ def interactive():
         with _interactive_lock:
             _interactive -= 1
 
-
 def interactive_waiting() -> bool:
     return _interactive > 0
-
 
 # ---------------------------------------------------------------- the shared LLM
 
@@ -139,7 +130,6 @@ class _SharedLLM:
     def weights_loaded(self) -> bool:
         return getattr(self._inner, "_model", None) is not None
 
-
 _shared: _SharedLLM | None = None          # the most recently requested model
 _llms: dict = {}                           # model id → its single wrapper
 _create_lock = threading.Lock()
@@ -149,13 +139,11 @@ _timer_lock = threading.Lock()
 _closed = False                    # set by shutdown(): the idle timer never reschedules afterwards
 stats = {"created": 0, "unloads": 0, "evictions": 0}
 
-
 def _wrappers() -> list:
     ws = list(_llms.values())
     if _shared is not None and _shared not in ws:
         ws.append(_shared)
     return ws
-
 
 def _evict_except(keep) -> None:
     """Free the weights of every other model (caller holds the heavy lock: none of them is generating)."""
@@ -164,11 +152,9 @@ def _evict_except(keep) -> None:
             w._inner.unload()
             stats["evictions"] += 1
 
-
 def _touch() -> None:
     global _last_use
     _last_use = time.monotonic()
-
 
 def shared_llm(model_id: str | None = None) -> _SharedLLM:
     """The in-process LLM for model_id (default config.RAG_LLM; weights load lazily inside the first generate)."""
@@ -185,15 +171,12 @@ def shared_llm(model_id: str | None = None) -> _SharedLLM:
     _schedule()
     return _shared
 
-
 def loaded() -> bool:
     return any(w.weights_loaded for w in _wrappers())
-
 
 def resident() -> list[str]:
     """Model ids whose weights are currently in memory (at most one after any generation)."""
     return [w.model_id for w in _wrappers() if w.weights_loaded]
-
 
 def unload_if_idle(idle_s: float | None = None) -> bool:
     """Free the shared LLM's weights if unused for idle_s. Takes the heavy lock without waiting, so it never
@@ -213,7 +196,6 @@ def unload_if_idle(idle_s: float | None = None) -> bool:
     except HeavyBusy:
         return False
 
-
 def _schedule() -> None:
     global _timer
 
@@ -229,7 +211,6 @@ def _schedule() -> None:
         _timer = threading.Timer(max(1.0, config.RAG_IDLE_UNLOAD_S), check)
         _timer.daemon = True
         _timer.start()
-
 
 def shutdown() -> None:
     """Backend shutdown: stop the idle timer for good, then free the weights. Waits for a running generation —

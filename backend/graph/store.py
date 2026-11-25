@@ -26,10 +26,8 @@ SCHEMA = [
     "CREATE FULLTEXT INDEX concept_names IF NOT EXISTS FOR (c:Concept) ON EACH [c.name, c.aliases_text]",
 ]
 
-
 class GraphOffline(RuntimeError):
     pass
-
 
 def _prev_keys(tx, rid: str) -> list[str]:
     rows = tx.run("""MATCH (p:Passage {reel_id: $rid})-[:MENTIONS]->(c:Concept) RETURN DISTINCT c.key AS k
@@ -37,7 +35,6 @@ def _prev_keys(tx, rid: str) -> list[str]:
                      MATCH (a:Assertion {reel_id: $rid})-[:SUBJECT|OBJECT]->(c:Concept) RETURN DISTINCT c.key AS k""",
                   rid=rid)
     return [r["k"] for r in rows]
-
 
 def _gc_and_refresh(tx, keys: list[str]) -> None:
     """Delete the given concepts if nothing references them; refresh aliases of the rest from MENTIONS."""
@@ -49,11 +46,9 @@ def _gc_and_refresh(tx, keys: list[str]) -> None:
               WITH c, [s IN collect(DISTINCT m.surface) WHERE s IS NOT NULL] AS surfaces
               SET c.aliases = surfaces, c.aliases_text = reduce(t = '', s IN surfaces | t + ' ' + s)""", keys=keys)
 
-
 def _delete_owned(tx, rid: str) -> None:
     tx.run("MATCH (a:Assertion {reel_id: $rid}) DETACH DELETE a", rid=rid)
     tx.run("MATCH (p:Passage {reel_id: $rid}) DETACH DELETE p", rid=rid)
-
 
 def write_reel_tx(tx, doc: dict) -> None:
     """doc: {reel, passages, concepts, mentions, assertions, graph_hash, retrieval_ready}"""
@@ -83,13 +78,11 @@ def write_reel_tx(tx, doc: dict) -> None:
     tx.run("MATCH (r:Reel {reel_id: $rid}) SET r.graph_hash = $h, r.retrieval_ready = $ready",   # last
            rid=rid, h=doc["graph_hash"], ready=doc["retrieval_ready"])
 
-
 def remove_reel_tx(tx, rid: str) -> None:
     prev = _prev_keys(tx, rid)
     _delete_owned(tx, rid)
     tx.run("MATCH (r:Reel {reel_id: $rid}) DETACH DELETE r", rid=rid)
     _gc_and_refresh(tx, prev)
-
 
 class Neo4jStore:
     def __init__(self, uri: str | None = None, user: str | None = None, password: str | None = None,

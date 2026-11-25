@@ -19,7 +19,6 @@ REAL_RECORD_ATTEMPT = jobs.record_attempt
 REAL_RMTREE = worker.shutil.rmtree
 REAL_MARK_QUEUED = jobs.mark_queued
 
-
 @pytest.fixture(autouse=True)
 def _iso(isolated_output, monkeypatch):
     jobs._export_state.update(pending=0, last=0.0)
@@ -30,39 +29,31 @@ def _iso(isolated_output, monkeypatch):
     # every artefact must live under the isolated temp OUTPUT_DIR
     assert isolated_output in Path(jobs.db_path()).parents and isolated_output in worker.spool_dir().parents
 
-
 def lease(n=1, sid="ig-a"):
     return jobs.create_session(sid, "ig", n)
-
 
 def cap(rid="R0", sid="ig-a", playback="ok", **kw):
     return {"reel_id": rid, "session_id": sid, "source": "ig", "playback": playback, "expected_s": 5,
             "captured_s": 5, "video_duration_s": 5, "frame_walls": [], **kw}
 
-
 def spool_one(rid="R0", sid="ig-a", playback="unavailable"):
     return worker.spool(cap(rid, sid, playback, playback_detail="Page not found"), io.BytesIO(b"fake-audio"),
                         [io.BytesIO(b"\xff\xd8jpeg")])
 
-
 def state(rid):
     with jobs.connect() as con:
         return dict(con.execute("SELECT state, lease_session, attempts FROM reels WHERE reel_id=?", (rid,)).fetchone())
-
 
 def n_attempts(rid=None):
     with jobs.connect() as con:
         q = "SELECT COUNT(*) FROM attempts" + (" WHERE reel_id=?" if rid else "")
         return con.execute(q, (rid,) if rid else ()).fetchone()[0]
 
-
 def db_down(*_a, **_k):
     raise sqlite3.OperationalError("database is locked")
 
-
 GOOD_RECORD = {"reel_id": "R0", "session_id": "ig-a", "status": "failed", "errors": ["unavailable"],
                "processed_at": "2026-11-23T00:00:00+00:00", "capture": {}, "transcript": None, "ocr": None}
-
 
 # ---------------------------------------------------------------- spool + basic processing
 
@@ -73,7 +64,6 @@ def test_spool_marks_queued_and_processing_removes_media():
     assert worker.run_once(LOOKUP)
     assert not job.exists() and n_attempts("R0") == 1 and state("R0")["state"] != "queued"
 
-
 def test_identity_comes_from_meta_not_directory_name():
     lease()
     job = spool_one()
@@ -81,7 +71,6 @@ def test_identity_comes_from_meta_not_directory_name():
     job.rename(renamed)
     assert worker.job_identity(renamed) == ("ig-a", "R0")
     assert worker.find_job("ig-a", "R0") == renamed
-
 
 # ---------------------------------------------------------------- DB failures
 
@@ -98,7 +87,6 @@ def test_db_failure_keeps_job_and_media_then_persists_without_reprocessing(monke
     assert worker.run_once(LOOKUP)
     assert not job.exists() and n_attempts("R0") == 1 and builds == [1]   # extraction ran once only
 
-
 def test_repeated_persist_failures_quarantine_reconcile_and_drop_media(monkeypatch):
     lease()
     job = spool_one()
@@ -110,7 +98,6 @@ def test_repeated_persist_failures_quarantine_reconcile_and_drop_media(monkeypat
     assert worker.valid_checkpoint(dead) and (dead / "QUARANTINED.txt").exists()
     assert not (dead / "audio.webm").exists() and not (dead / "frames").exists()  # valid record → media dropped
     assert state("R0")["state"] != "queued"                                   # reconciled immediately
-
 
 def test_invalid_metadata_quarantined_keeps_only_copy_and_reconciles():
     lease()
@@ -126,7 +113,6 @@ def test_invalid_metadata_quarantined_keeps_only_copy_and_reconciles():
     assert worker.purge_dead(older_than_days=365) == 0 and (dead / "audio.webm").exists()  # explicit, aged only
     assert worker.purge_dead(older_than_days=0) == 2 and not (dead / "audio.webm").exists()
 
-
 def test_corrupt_checkpoint_keeps_media_and_retry_rebuilds_from_it():
     lease(2)
     a, b = spool_one("R0"), spool_one("R1")
@@ -140,7 +126,6 @@ def test_corrupt_checkpoint_keeps_media_and_retry_rebuilds_from_it():
     assert state("R0")["state"] != "queued"
     assert worker.retry_dead() == 1 and worker.drain(LOOKUP) == 1         # rebuilt from the original media
     assert n_attempts("R0") == 1 and worker.pending_jobs() == [] and not dead.exists()
-
 
 @pytest.mark.parametrize("bad", [
     {"reel_id": "R0"},                                              # missing keys
@@ -160,11 +145,9 @@ def test_valid_checkpoint_rejects_malformed_records(tmp_path, bad):
     (tmp_path / "record.json").write_text(json.dumps(bad))
     assert not worker.valid_checkpoint(tmp_path)
 
-
 def test_valid_checkpoint_accepts_well_formed_record(tmp_path):
     (tmp_path / "record.json").write_text(json.dumps(GOOD_RECORD))
     assert worker.valid_checkpoint(tmp_path)
-
 
 def test_malformed_checkpoint_media_survives_quarantine(monkeypatch):
     lease()
@@ -177,7 +160,6 @@ def test_malformed_checkpoint_media_survives_quarantine(monkeypatch):
     assert (dead / "audio.webm").exists() and (dead / "frames").exists()
     assert (dead / "record.json.corrupt").exists() and not (dead / "record.json").exists()
 
-
 def test_corrupt_or_backoff_failures_json_never_blocks_other_jobs(monkeypatch):
     monkeypatch.setattr(worker, "RETRY_BACKOFF_S", 3600)
     lease(3)
@@ -187,7 +169,6 @@ def test_corrupt_or_backoff_failures_json_never_blocks_other_jobs(monkeypatch):
     assert worker.drain(LOOKUP) == 2
     assert a.exists() and not b.exists() and not c.exists()
     assert n_attempts("R1") == 1 and n_attempts("R2") == 1
-
 
 # ---------------------------------------------------------------- crash recovery
 
@@ -205,7 +186,6 @@ def test_crash_after_commit_recovery_is_idempotent(monkeypatch):
     assert n_attempts("R0") == 1 and state("R0") == after_commit
     assert state("R0")["state"] != "queued" and state("R0")["lease_session"] is None
 
-
 def test_rerunning_a_committed_job_restores_state_instead_of_stranding(monkeypatch):
     lease()
     job = spool_one()
@@ -217,7 +197,6 @@ def test_rerunning_a_committed_job_restores_state_instead_of_stranding(monkeypat
     out = worker.process_job(job, LOOKUP)
     assert out["duplicate"] and n_attempts("R0") == 1 and state("R0")["state"] == committed["state"]
 
-
 def test_recovery_removes_partial_uploads_and_restores_orphans():
     lease(2)
     spool_one("R1")
@@ -228,7 +207,6 @@ def test_recovery_removes_partial_uploads_and_restores_orphans():
     info = worker.recover()
     assert not partial.exists() and info["partial_uploads_removed"] == 1 and info["jobs_resumed"] == 1
     assert state("R0")["state"] != "queued" and state("R1")["state"] == "queued"
-
 
 def test_failed_publication_reverts_queued_state_exactly(monkeypatch):
     lease()
@@ -246,7 +224,6 @@ def test_failed_publication_reverts_queued_state_exactly(monkeypatch):
     monkeypatch.setattr(Path, "rename", real_rename)
     assert state("R0") == before                          # still in_progress, same lease
     assert not list(worker.spool_dir().glob(".incoming-*")) and worker.pending_jobs() == []
-
 
 def test_reconcile_cannot_run_between_mark_and_publication(monkeypatch):
     lease()
@@ -272,7 +249,6 @@ def test_reconcile_cannot_run_between_mark_and_publication(monkeypatch):
     t_rec.join(5)
     assert result["n"] == 0 and state("R0")["state"] == "queued" and len(worker.pending_jobs()) == 1
 
-
 # ---------------------------------------------------------------- sessions + backpressure
 
 def test_session_not_finalized_while_jobs_queued_and_never_abandoned_while_draining():
@@ -289,7 +265,6 @@ def test_session_not_finalized_while_jobs_queued_and_never_abandoned_while_drain
     worker.drain(LOOKUP)
     assert jobs.session_progress("ig-a")["finalized"] and jobs.session_progress("ig-a")["queued"] == 0
 
-
 def test_backpressure_refuses_upload_without_spooling(monkeypatch):
     monkeypatch.setattr(config, "ASYNC_PROCESSING", True)
     monkeypatch.setattr(worker, "MAX_BACKLOG", 1)
@@ -300,7 +275,6 @@ def test_backpressure_refuses_upload_without_spooling(monkeypatch):
     r = TestClient(app).post("/api/process", data={"meta": json.dumps(cap("R2", playback="unavailable"))})
     assert r.status_code == 503 and "overloaded" in r.text
     assert len(worker.pending_jobs()) == 2 and state("R2") == before
-
 
 def test_async_api_end_to_end_with_real_clip(monkeypatch):
     monkeypatch.setattr(config, "ASYNC_PROCESSING", True)
@@ -325,7 +299,6 @@ def test_async_api_end_to_end_with_real_clip(monkeypatch):
     with jobs.connect() as con:
         row = con.execute("SELECT status FROM attempts WHERE reel_id='TESTCLIP01'").fetchone()
     assert row["status"] == "ok"
-
 
 def test_retry_dead_requeues_quarantined_job(monkeypatch):
     lease()

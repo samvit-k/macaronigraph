@@ -7,7 +7,6 @@ from backend import ocr
 
 FONT = ImageFont.truetype("/System/Library/Fonts/Supplemental/Arial Bold.ttf", 56)
 
-
 def card(text: str | None, bg="#1f3a5f") -> bytes:
     img = Image.new("RGB", (720, 1280), bg)
     if text:
@@ -16,7 +15,6 @@ def card(text: str | None, bg="#1f3a5f") -> bytes:
     img.save(buf, "JPEG", quality=90)
     return buf.getvalue()
 
-
 def test_dedupes_repeated_text_into_time_range():
     frames = [(t, card("HELLO WORLD")) for t in (0, 1, 2)] + [(3, card("SECOND CARD")), (4, card(None))]
     r = ocr.ocr_frames(frames)
@@ -24,36 +22,30 @@ def test_dedupes_repeated_text_into_time_range():
     assert [(s["text"], s["start"], s["end"]) for s in r["segments"]] == [
         ("HELLO WORLD", 0, 2), ("SECOND CARD", 3, 3)]
 
-
 def test_reappearing_text_after_short_gap_merges():
     frames = [(0, card("SAME TEXT")), (1, card(None)), (2, card("SAME TEXT"))]
     segs = ocr.ocr_frames(frames)["segments"]
     assert len(segs) == 1 and segs[0]["end"] == 2
 
-
 def test_no_text_is_ok_with_zero_segments():
     r = ocr.ocr_frames([(0, card(None)), (1, card(None, bg="#000"))])
     assert r["status"] == "ok" and r["segments"] == []
-
 
 @pytest.mark.parametrize("text,conf", [("RQ", 63.0), ("ee", 60.0), ("Ag", 65.0), ("a a a", 88.0), ("Bo \\", 67.5),
                                        ("@ #", 90.0), ("aN", 78.0)])
 def test_noise_lines_from_real_instagram_frames_are_filtered(text, conf):
     assert ocr.noise_reason(ocr.Line(text, conf, (0, 0, 1, 1))) is not None
 
-
 @pytest.mark.parametrize("text,conf", [("AI", 95.0), ("WSL", 84.5), ("x86", 70.0), ("ARM", 90.3), ("Q4", 92.0),
                                        ("Eat-Sleep-Code-Repeat", 64.0), ("eep reasoning", 89.0)])
 def test_short_but_meaningful_text_is_kept(text, conf):
     assert ocr.noise_reason(ocr.Line(text, conf, (0, 0, 1, 1))) is None
-
 
 def test_merge_text_collapses_rolling_overlap():
     assert ocr.merge_text("a sharp knife", "sharp knife cuts cleanly") == "a sharp knife cuts cleanly"
     assert ocr.merge_text("a sharp knife", "a sharp knife cuts") == "a sharp knife cuts"       # growing karaoke line
     assert ocr.merge_text("the whole line", "whole") == "the whole line"               # repeat → no change
     assert ocr.merge_text("home cooks keep", "chopping all day") == "home cooks keep chopping all day"
-
 
 def test_group_blocks_joins_multiline_caption_but_not_distant_title():
     title = ocr.Line("22yo chef explains", 90, (0.1, 0.05, 0.9, 0.09))
@@ -63,11 +55,9 @@ def test_group_blocks_joins_multiline_caption_but_not_distant_title():
     blocks = ocr.group_blocks([l3, title, l1, l2])
     assert [b.text for b in blocks] == ["22yo chef explains", "Can chop & simmer Uses pans, ovens & timers"]
 
-
 def _raw(i, start, text, y, frames=1, end=None):
     return {"id": i, "start": start, "end": start if end is None else end, "text": text, "confidence": 95.0,
             "frames": frames, "box": [0.1, y, 0.9, y + 0.04]}
-
 
 def test_merge_subtitles_chains_same_band_and_keeps_provenance():
     raw = [_raw(0, 0.0, "22yo chef explains", 0.05, frames=50, end=49.0),     # persistent title
@@ -84,7 +74,6 @@ def test_merge_subtitles_chains_same_band_and_keeps_provenance():
     assert texts == {"22yo chef explains", "Saucepan", "much later caption"}
     assert [s["id"] for s in out] == list(range(len(out)))
 
-
 def _frame(*items) -> bytes:
     """items: (text, y_px, font_px)"""
     img = Image.new("RGB", (720, 1280), "#1f3a5f")
@@ -97,9 +86,7 @@ def _frame(*items) -> bytes:
     img.save(buf, "JPEG", quality=90)
     return buf.getvalue()
 
-
 SPEECH = [{"start": 0.0, "end": 4.0, "text": "Caching stores the result of expensive work"}]
-
 
 def test_pipeline_echo_gated_merge_never_absorbs_unrelated_text():
     frames = [(0.0, _frame(("CACHING STORES", 900, 56), ("MENU", 100, 40))),
@@ -122,12 +109,10 @@ def test_pipeline_echo_gated_merge_never_absorbs_unrelated_text():
     assert {p for s in r["segments"] for p in s["parts"]} == raw_ids
     assert any(s["text"] == "MENU" and s["echo"]["label"] == "on_screen" for s in r["segments"])
 
-
 def test_pipeline_without_transcript_labels_unknown_and_still_works():
     frames = [(0.0, _frame(("HELLO THERE", 600, 56))), (1.0, _frame(("HELLO THERE", 600, 56)))]
     r = ocr.ocr_frames(frames)
     assert r["speech_aligned"] is False and r["segments"][0]["echo"]["label"] == "unknown"
-
 
 def test_geometry_blocks_merging_different_font_sizes_in_same_band():
     raw = [_raw(0, 1.0, "caching stores", 0.70), _raw(1, 2.0, "the result", 0.70)]
@@ -135,7 +120,6 @@ def test_geometry_blocks_merging_different_font_sizes_in_same_band():
     out = ocr.merge_subtitles(raw, 1.0)
     assert [s["kind"] for s in out] == ["text", "text"]
     assert ocr.merge_subtitles(raw, 1.0, geometry=False)[0]["kind"] == "subtitle"  # v1 would merge
-
 
 def test_consolidate_repeats_keeps_every_occurrence_and_part():
     segs = [{"id": 0, "start": 2.4, "end": 2.4, "text": "10.", "confidence": 94, "frames": 1, "box": [0] * 4,
@@ -149,17 +133,14 @@ def test_consolidate_repeats_keeps_every_occurrence_and_part():
     assert len(out) == 2 and ten["occurrences"] == [[2.4, 2.4], [13.4, 15.4]]
     assert ten["parts"] == [3, 7] and ten["frames"] == 4 and ten["end"] == 15.4
 
-
 def test_echo_score_is_fuzzy_but_not_absolute():
     speech = {"caching", "stores", "result"}
     assert ocr.echo_score("CACHlNG STORES", speech) == 1.0         # OCR typo still matches
     assert ocr.echo_score("PROMO CODE", speech) == 0.0
     assert ocr.echo_label(0.4) == "partial_echo"                     # partial evidence stays partial
 
-
 def _qseg(text, conf=90.0, frames=1, kind="text", echo="on_screen", **kw):
     return {"text": text, "confidence": conf, "frames": frames, "kind": kind, "echo": {"label": echo}, **kw}
-
 
 @pytest.mark.parametrize("text,conf", [
     ("package.json", 91), ("Polished CGI", 95), ("Pixel cartoon", 96), ("Claymation", 95), ("Est. revenue", 94),
@@ -170,7 +151,6 @@ def test_meaningful_text_is_never_labelled_fragment(text, conf):
     ocr.label_quality(segs, raw=[], transcript_segments=[], context_text="")
     assert segs[0]["quality"] == "normal", segs[0]
 
-
 @pytest.mark.parametrize("text,conf", [("ompiex", 82), ("aliSim", 60), ("YOUINEED", 90), ("VWUIR UUL", 71.5),
                                        ("injthe", 63), ("hod", 63)])
 def test_isolated_scraps_are_labelled_fragment_with_reasons(text, conf):
@@ -178,7 +158,6 @@ def test_isolated_scraps_are_labelled_fragment_with_reasons(text, conf):
     ocr.label_quality(segs, raw=[], transcript_segments=[], context_text="")
     assert segs[0]["quality"] == "fragment" and "single_frame" in segs[0]["quality_reasons"]
     assert segs[0]["text"] == text                                   # label only: text untouched
-
 
 def test_fragment_rules_respect_context_recurrence_frames_and_echo():
     cases = {
@@ -196,13 +175,11 @@ def test_fragment_rules_respect_context_recurrence_frames_and_echo():
         ocr.label_quality([seg], **args)
         assert seg["quality"] == "normal", name
 
-
 def test_without_wordlist_labelling_gets_more_conservative(monkeypatch):
     monkeypatch.setattr(ocr, "_WORDS", set())
     segs = [_qseg("ompiex", 82), _qseg("hod", 63)]
     ocr.label_quality(segs, raw=[], transcript_segments=[], context_text="")
     assert [s["quality"] for s in segs] == ["normal", "fragment"]    # only short + low-confidence remains
-
 
 def test_fragments_stay_in_passages_with_quality_flag():
     from backend.record import passages
@@ -211,7 +188,6 @@ def test_fragments_stay_in_passages_with_quality_flag():
                        "parts": [0], "echo": {"label": "on_screen"}, "quality": "fragment"}]}
     (p,) = passages("R", "u", "", None, o)
     assert p["text"] == "ompiex" and p["ocr_quality"] == "fragment"
-
 
 def test_filtered_noise_is_retained_not_discarded():
     img = Image.new("RGB", (720, 1280), "#1f3a5f")
@@ -222,7 +198,6 @@ def test_filtered_noise_is_retained_not_discarded():
     r = ocr.ocr_frames([(0, buf.getvalue())])
     assert "REAL TEXT HERE" in r["text"]
     assert isinstance(r["filtered_segments"], list) and r["raw_segments"]  # schema present for provenance
-
 
 def test_corrupt_and_missing_frames():
     r = ocr.ocr_frames([(0, b"not a jpeg")])

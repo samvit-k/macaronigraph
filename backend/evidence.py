@@ -28,14 +28,11 @@ some any each every not no yes can could would should will may might must do doe
 your yours we our us i me my he she his her what which who whom whose when where why how all both either neither
 reel reels video videos says said say according creator mention mentions mentioned saved tell tells""".split())
 
-
 def _tok(s: str) -> list[str]:
     return [w for w in re.findall(r"[a-z0-9][a-z0-9+#.\-]*[a-z0-9+#]|[a-z0-9]", s.lower()) if w not in _STOP]
 
-
 def _stem(w: str) -> str:
     return w[:6] if w.isalpha() else w
-
 
 def _anchors(question: str) -> tuple[list[str], list[tuple[str, str]]]:
     words = [_stem(w) for w in _tok(question) if len(w) > 2 or w.isdigit()]
@@ -43,7 +40,6 @@ def _anchors(question: str) -> tuple[list[str], list[tuple[str, str]]]:
     pairs = [(_stem(a), _stem(b)) for a, b in zip(raw, raw[1:]) if a not in _STOP or b.isdigit()]
     pairs = [(a, b) for a, b in pairs if (a not in _STOP and b not in _STOP) or b.isdigit()]
     return list(dict.fromkeys(words)), list(dict.fromkeys(pairs))
-
 
 def _lex(anchors, pairs, text: str, df: dict, n: int) -> float:
     toks = [_stem(w) for w in re.findall(r"[a-z0-9]+", text.lower())]
@@ -56,11 +52,9 @@ def _lex(anchors, pairs, text: str, df: dict, n: int) -> float:
     score += 0.5 * sum(1 for p in pairs if p in bigr) / max(1, len(pairs))
     return score
 
-
 def _cos(q, v) -> float:
     v = np.asarray(v, dtype=np.float32)
     return float(np.dot(q, v) / ((np.linalg.norm(q) * np.linalg.norm(v)) or 1.0))
-
 
 def select(question: str, retrieval: dict, options: dict | None = None) -> dict:
     """→ the retrieval dict with answer-bearing passages of already-retrieved Reels appended (in place), and

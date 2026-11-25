@@ -9,7 +9,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 TOOLS_BIN = ROOT / ".tools" / "env" / "bin"
 
-
 def _tool(name: str) -> str:
     """Prefer the project-local binary; fall back to PATH; else return the expected local path
     (so the error message points at the right place)."""
@@ -17,7 +16,6 @@ def _tool(name: str) -> str:
     if local.is_file() and os.access(local, os.X_OK):
         return str(local)
     return shutil.which(name) or str(local)
-
 
 # Libraries that shell out to bare `ffmpeg` (e.g. mlx_whisper.audio) must find the local build too.
 if TOOLS_BIN.is_dir() and str(TOOLS_BIN) not in os.environ.get("PATH", "").split(os.pathsep):
@@ -45,7 +43,6 @@ def _find_export() -> Path:
     found = sorted([*ROOT.glob(rel), *(Path.home() / "Downloads").glob(rel)], key=lambda p: p.stat().st_mtime)
     return found[-1] if found else ROOT / "saved_posts.json"
 
-
 INSTAGRAM_POSTS_PATH = _find_export()
 
 PORT = int(os.environ.get("PORT", "8765"))
@@ -62,10 +59,8 @@ INDEX_AUTO = os.environ.get("INDEX_AUTO", "1") == "1"      # index automatically
 INDEX_IDLE_S = float(os.environ.get("INDEX_IDLE_S", "120"))
 FRAGMENT_WEIGHT = float(os.environ.get("FRAGMENT_WEIGHT", "0.85"))  # ranking weight of uncertain OCR
 
-
 def chroma_dir() -> Path:
     return OUTPUT_DIR / "chroma"
-
 
 # Phase 4A: knowledge graph (Neo4j, optional). Credentials come only from the environment; a local
 # `.env.local` (mode 600, git-ignored, written by scripts/neo4j.sh) fills NEO4J_* variables that are unset.
@@ -76,7 +71,6 @@ def _load_env_file(path: Path) -> None:
         k, sep, v = line.strip().partition("=")
         if sep and k.startswith("NEO4J_") and k not in os.environ:
             os.environ[k] = v
-
 
 _load_env_file(ROOT / ".env.local")
 NEO4J_URI = os.environ.get("NEO4J_URI", "bolt://127.0.0.1:7697")
@@ -95,7 +89,6 @@ RAG_LLM = os.environ.get("RAG_LLM", GRAPH_LLM)
 MODEL_REVISIONS = {"mlx-community/Qwen3-8B-4bit": "545dc4251c05440727734bcd94334791f6ab0192"}
 RAG_IDLE_UNLOAD_S = float(os.environ.get("RAG_IDLE_UNLOAD_S", "300"))    # free the LLM after this idle time
 RAG_HEAVY_WAIT_S = float(os.environ.get("RAG_HEAVY_WAIT_S", "90"))       # an answer waits this long for the model
-
 
 def configure_tesseract() -> None:
     import pytesseract

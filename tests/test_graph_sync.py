@@ -15,7 +15,6 @@ from helpers import canonical_digest, production_path_guard
 from test_chunking import make_record, seg
 from test_indexer import add
 
-
 class FakeStore:
     """Same interface as Neo4jStore; keeps whole Reel documents (one 'transaction' = one dict assignment)."""
 
@@ -56,9 +55,7 @@ class FakeStore:
     def concepts(self):
         return {c["key"] for d in self.docs.values() for c in d["concepts"]}
 
-
 TERMS = ["Triton", "CUDA", "sourdough", "asyncio", "Python", "LiDAR", "robot"]
-
 
 class FakeLLM:
     """Proposes every known term that occurs in a passage; one relation when a passage says 'built on top of'."""
@@ -85,7 +82,6 @@ class FakeLLM:
     def unload(self):
         pass
 
-
 @pytest.fixture(autouse=True)
 def env(isolated_output, monkeypatch):
     monkeypatch.setattr(config, "EMBED_MODEL", embedder.HashEmbedder.MODEL)
@@ -97,14 +93,11 @@ def env(isolated_output, monkeypatch):
     with production_path_guard(isolated_output):
         yield
 
-
 def triton_reel(rid="A", extra=""):
     return add(rid, f"Triton is built on top of CUDA {extra}".strip())
 
-
 def run(store, llm, **kw):
     return gs.sync(store=store, llm=llm, **kw)
-
 
 # ---------------------------------------------------------------- ingest / skip / update
 
@@ -126,7 +119,6 @@ def test_initial_ingest_links_passages_to_chroma_chunks_with_provenance():
     assert all(m["chunk_id"] in {p["chunk_id"] for p in doc["passages"]} for m in doc["mentions"])
     assert gs.states()["A"]["status"] == "ready"
 
-
 def test_unchanged_reels_are_skipped_without_llm_or_rewrite():
     triton_reel("A")
     indexer.sync_all()
@@ -135,7 +127,6 @@ def test_unchanged_reels_are_skipped_without_llm_or_rewrite():
     calls, writes = llm.calls, store.writes
     st = run(store, llm)
     assert st["skipped"] == 1 and llm.calls == calls and store.writes == writes
-
 
 def test_improved_canonical_record_is_reconciled():
     triton_reel("A")
@@ -149,7 +140,6 @@ def test_improved_canonical_record_is_reconciled():
     assert (st["extracted"], st["written"], st["skipped"]) == (1, 1, 1)
     assert {"asyncio", "python"} <= {c["key"] for c in store.docs["B"]["concepts"]}
 
-
 def test_repeated_sync_creates_no_duplicates():
     triton_reel("A")
     indexer.sync_all()
@@ -159,7 +149,6 @@ def test_repeated_sync_creates_no_duplicates():
     doc = store.docs["A"]
     assert len(doc["assertions"]) == len({a["id"] for a in doc["assertions"]}) == 2   # caption + speech
     assert len(doc["mentions"]) == len({(m["chunk_id"], m["key"]) for m in doc["mentions"]})
-
 
 def test_test_clips_are_excluded_from_the_production_graph():
     triton_reel("A")
@@ -171,14 +160,12 @@ def test_test_clips_are_excluded_from_the_production_graph():
     run(store, FakeLLM())
     assert set(store.docs) == {"A"}
 
-
 def test_sync_never_modifies_canonical_tables():
     triton_reel("A")
     indexer.sync_all()
     before = canonical_digest()
     run(FakeStore(), FakeLLM())
     assert canonical_digest() == before
-
 
 # ---------------------------------------------------------------- failures and recovery
 
@@ -202,7 +189,6 @@ def test_failed_extraction_keeps_previous_graph_knowledge():
     st = run(store, llm)
     assert st["written"] == 1 and gs.states()["A"]["status"] == "ready"
 
-
 def test_failed_graph_transaction_keeps_previous_graph_and_retries():
     triton_reel("A")
     indexer.sync_all()
@@ -219,7 +205,6 @@ def test_failed_graph_transaction_keeps_previous_graph_and_retries():
     st = run(store, llm)
     assert st["written"] == 1 and llm.calls == calls                             # reused cached extraction
 
-
 def test_crash_after_commit_before_state_is_recorded_without_rewrite(monkeypatch):
     triton_reel("A")
     indexer.sync_all()
@@ -235,7 +220,6 @@ def test_crash_after_commit_before_state_is_recorded_without_rewrite(monkeypatch
     st = run(store, llm)
     assert store.writes == writes and gs.states()["A"]["status"] == "ready" and st["written"] == 0
 
-
 def test_interrupted_sync_resumes_at_reel_boundary():
     for r in "ABC":
         triton_reel(r)
@@ -246,7 +230,6 @@ def test_interrupted_sync_resumes_at_reel_boundary():
     assert st["stopped"] and len(store.docs) == 1
     st = run(store, llm)
     assert len(store.docs) == 3 and st["skipped"] == 1 and st["written"] == 2
-
 
 def test_neo4j_offline_still_fills_the_extraction_cache_then_catches_up():
     triton_reel("A")
@@ -261,7 +244,6 @@ def test_neo4j_offline_still_fills_the_extraction_cache_then_catches_up():
     st = run(store, llm)
     assert st["written"] == 1 and st["from_cache"] == 1 and llm.calls == calls
 
-
 def test_ineligible_reel_is_removed(monkeypatch):
     triton_reel("A")
     add("B", "sourdough")
@@ -272,7 +254,6 @@ def test_ineligible_reel_is_removed(monkeypatch):
     monkeypatch.setattr(gs, "eligible", lambda: {k: v for k, v in real().items() if k != "B"})
     st = run(store, FakeLLM())
     assert st["removed"] == 1 and set(store.docs) == {"A"} and "B" not in gs.states()
-
 
 # ---------------------------------------------------------------- Chroma readiness
 
@@ -286,7 +267,6 @@ def test_reel_awaits_the_index_then_is_promoted_without_llm():
     st = run(store, llm)
     assert st["promoted"] == 1 and store.ready["A"] is True and gs.states()["A"]["status"] == "ready"
     assert llm.calls == calls and store.writes == writes
-
 
 def test_ready_reel_is_demoted_when_chroma_is_unavailable_and_promoted_on_recovery(monkeypatch):
     triton_reel("A")
@@ -303,7 +283,6 @@ def test_ready_reel_is_demoted_when_chroma_is_unavailable_and_promoted_on_recove
     assert st["promoted"] == 1 and store.ready["A"] is True and gs.states()["A"]["status"] == "ready"
     assert llm.calls == calls and store.writes == writes                       # no LLM, no rewrite
 
-
 def test_ready_reel_is_demoted_when_its_chunks_go_missing():
     triton_reel("A")
     indexer.sync_all()
@@ -313,7 +292,6 @@ def test_ready_reel_is_demoted_when_its_chunks_go_missing():
     col.delete(ids=col.get(where={"reel_id": "A"}, include=[])["ids"][:1])
     st = run(store, FakeLLM())
     assert st["demoted"] == 1 and gs.states()["A"]["status"] == "awaiting_index"
-
 
 def test_neo4j_drop_during_readiness_update_does_not_abort_sync(monkeypatch):
     triton_reel("A")
@@ -330,7 +308,6 @@ def test_neo4j_drop_during_readiness_update_does_not_abort_sync(monkeypatch):
     st = run(store, FakeLLM())
     assert st["demoted"] == 2
 
-
 # ---------------------------------------------------------------- idle gating
 
 def test_manual_sync_during_capture_defers_extraction_unless_forced(monkeypatch):
@@ -346,7 +323,6 @@ def test_manual_sync_during_capture_defers_extraction_unless_forced(monkeypatch)
     assert st["deferred"] == 1 and llm.calls == 0                               # capture active: no LLM
     st = gs.request_sync(force=True, wait=True)
     assert st["extracted"] == 1 and llm.calls == 1 and "A" in store.docs
-
 
 # ---------------------------------------------------------------- concurrency
 
@@ -370,7 +346,6 @@ def test_only_one_sync_at_a_time_and_manual_wait_reports_busy(monkeypatch):
     hold.set()
     t.join()
     assert run(FakeStore(), FakeLLM())["written"] == 1
-
 
 def test_queued_request_meeting_a_running_sync_is_retried_not_dropped(monkeypatch):
     triton_reel("A")
@@ -411,14 +386,12 @@ def test_queued_request_meeting_a_running_sync_is_retried_not_dropped(monkeypatc
     finally:
         assert gs.stop()
 
-
 # ---------------------------------------------------------------- reviews
 
 def _the_assertion(store):
     """The assertion whose evidence is the spoken passage (the caption states the same claim separately)."""
     (a,) = [x for x in store.docs["A"]["assertions"] if ":transcript:" in x["chunk_id"]]
     return a
-
 
 def test_review_survives_reel_refresh():
     triton_reel("A")
@@ -434,7 +407,6 @@ def test_review_survives_reel_refresh():
     indexer.sync_all()
     run(store, llm)
     assert _the_assertion(store)["status"] == "verified"
-
 
 def test_review_during_sync_is_never_marked_synchronized(monkeypatch):
     triton_reel("A")
@@ -461,7 +433,6 @@ def test_review_during_sync_is_never_marked_synchronized(monkeypatch):
     run(store, llm)
     assert _the_assertion(store)["status"] == "rejected" and gs.states()["A"]["status"] == "ready"
 
-
 def test_review_changed_between_snapshot_and_commit_is_detected(monkeypatch):
     triton_reel("A")
     indexer.sync_all()
@@ -482,14 +453,12 @@ def test_review_changed_between_snapshot_and_commit_is_detected(monkeypatch):
     run(store, llm)
     assert _the_assertion(store)["status"] == "rejected"
 
-
 def test_owner_of_chunk_ids():
     assert gs.owner_of("DtestReel02:transcript:003") == "DtestReel02"
     assert gs.owner_of("a-b_c:ocr_title:010") == "a-b_c"
     assert gs.owner_of("no-format") is None
     with pytest.raises(ValueError):
         gs.put_review("x", "USES", "y", "no-format", "accept", None)
-
 
 # ---------------------------------------------------------------- extractor versions, recovery, no needless re-extraction
 
@@ -498,17 +467,14 @@ class NewLLM(FakeLLM):
     version = "x-fake-2"
     compatible_versions = ["x-fake-1"]
 
-
 class IncompatibleLLM(FakeLLM):
     version = "x-fake-3"
     compatible_versions = []
-
 
 def _cache_rows():
     with jobs.connect() as con:
         return sorted((r["reel_id"], r["extractor_version"], r["status"])
                       for r in con.execute("SELECT * FROM graph_extraction"))
-
 
 def test_compatible_proposals_are_reused_under_their_own_label_without_the_llm(monkeypatch):
     triton_reel("A")
@@ -534,7 +500,6 @@ def test_compatible_proposals_are_reused_under_their_own_label_without_the_llm(m
     assert st["extracted"] == 2 and other.calls == 2                               # incompatible → re-extracted
     assert store.docs["A"]["reel"]["extractor_version"] == "x-fake-3"
 
-
 def test_only_failed_reels_are_re_extracted_and_a_second_sync_extracts_nothing():
     for rid in ("A", "B", "C"):
         triton_reel(rid)
@@ -558,7 +523,6 @@ def test_only_failed_reels_are_re_extracted_and_a_second_sync_extracts_nothing()
     st = run(store, new)
     assert (st["extracted"], st["skipped"], new.calls) == (0, 3, 1)                # steady state: no LLM at all
 
-
 def test_deterministic_extraction_failure_is_not_retried_automatically():
     from backend.graph.extract import ExtractionError
     triton_reel("A")
@@ -572,7 +536,6 @@ def test_deterministic_extraction_failure_is_not_retried_automatically():
     assert "retry with force" in gs.states()["A"]["error"]
     st = run(store, llm, force=True)
     assert st["extracted"] == 1 and gs.states()["A"]["status"] == "ready"
-
 
 def test_partial_extraction_is_flagged_on_the_reel_and_timing_is_reported():
     triton_reel("A")

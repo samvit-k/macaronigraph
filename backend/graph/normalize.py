@@ -39,11 +39,9 @@ _LEAD = re.compile(r"^[^\w.#+]+")          # keep a leading "." (.NET)
 _TRAIL = re.compile(r"[^\w+#]+$")           # keep trailing "+" / "#" (C++, C#)
 _TOKEN_JUNK = re.compile(r"[^\w+#.\-]")
 
-
 def _fold(s: str) -> str:
     s = unicodedata.normalize("NFKC", s).replace("’", "'").replace("–", "-").replace("—", "-")
     return " ".join(s.split())
-
 
 def _singular(word: str) -> str:
     if len(word) <= 3 or not word.isalpha() or word in PROTECTED_WORDS:
@@ -57,7 +55,6 @@ def _singular(word: str) -> str:
     if word.endswith("s"):
         return word[:-1]
     return word
-
 
 def _tokens(name: str) -> list[tuple[str, str]]:
     """→ [(original token, normalized token)], hyphenated plain words split into words."""
@@ -78,7 +75,6 @@ def _tokens(name: str) -> list[tuple[str, str]]:
             out.append((tok, tok.lower()))              # identifiers keep hyphens: "cuda-q", "x86-64"
     return out
 
-
 def base_key(name: str) -> str:
     toks = _tokens(name)
     if not toks:
@@ -92,12 +88,10 @@ def base_key(name: str) -> str:
         words[-1] = _singular(words[-1]) if not acronym_plural else words[-1][:-1]
     return " ".join(words)
 
-
 # ---------------------------------------------------------------- curated aliases (reloaded when the file changes)
 
 _cache: dict = {"stamp": None}
 _cache_lock = threading.Lock()
-
 
 def _alias_table() -> dict:
     st = ALIASES_PATH.stat()
@@ -122,11 +116,9 @@ def _alias_table() -> dict:
                           digest=hashlib.sha256(raw).hexdigest()[:12])
         return _cache
 
-
 def version() -> str:
     """Normalization version: rules + current aliases.json content."""
     return f"{RULES_VERSION}-{_alias_table()['digest']}"
-
 
 def is_generic(name: str) -> bool:
     k = base_key(name)
@@ -137,17 +129,14 @@ def is_generic(name: str) -> bool:
     words = k.split()
     return all(w in STOPLIST for w in words) or len(words) > 6
 
-
 def excluded(name: str) -> str | None:
     """Curated non-concepts (aliases.json "not_concepts", exact key match only) → the recorded reason."""
     return _alias_table()["excluded"].get(base_key(name))
-
 
 def context_alias(surface: str) -> dict | None:
     """Curated context-dependent alias for this surface (aliases.json "contextual_aliases"), e.g. "Higgs Field"
     → Higgsfield only when its passage also names the company's products. None for every other surface."""
     return _alias_table()["contextual"].get(base_key(surface))
-
 
 def context_supports(spec: dict, text: str) -> bool:
     """True if the passage contains one of the spec's required context words (whole tokens, case-insensitive).
@@ -155,11 +144,9 @@ def context_supports(spec: dict, text: str) -> bool:
     tokens = set(re.findall(r"[a-z0-9][a-z0-9.\-]*[a-z0-9]|[a-z0-9]", unicodedata.normalize("NFKC", text).casefold()))
     return any(w.casefold() in tokens for w in spec["requires_any"])
 
-
 def contextual_pairs() -> set[frozenset]:
     """Key pairs that are deliberately distinct concepts despite similar spelling (surface vs its target)."""
     return {frozenset((k, base_key(s["canonical"]))) for k, s in _alias_table()["contextual"].items()}
-
 
 def find_acronyms(text: str) -> dict[str, str]:
     """Acronyms defined in the text as '<words> (<ACRONYM>)', where the words end right before the
@@ -179,7 +166,6 @@ def find_acronyms(text: str) -> dict[str, str]:
                 out[base_key(m.group(2))] = " ".join(cand)
                 break
     return out
-
 
 def canonicalize(name: str, model_canonical: str | None = None, acronyms: dict | None = None) -> tuple[str, str]:
     """→ (concept key, display name). Order: curated alias → guarded ASR alias → acronym defined in this Reel
@@ -204,10 +190,8 @@ def canonicalize(name: str, model_canonical: str | None = None, acronyms: dict |
         display = display.replace("_", " ")            # "Pi_harness" → "Pi harness" (same key either way)
     return k, display
 
-
 def curated_type(display: str) -> str | None:
     return _alias_table()["types"].get(display)
-
 
 def curated_surfaces(display: str) -> list[str]:
     """Literal spellings (canonical name + aliases, as written in aliases.json) of a curated concept, for exact

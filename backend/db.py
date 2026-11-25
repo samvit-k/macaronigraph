@@ -6,10 +6,8 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
-
 
 @contextmanager
 def connect(path: Path, schema: str, *, foreign_keys: bool = False, migrate=None):
@@ -26,7 +24,6 @@ def connect(path: Path, schema: str, *, foreign_keys: bool = False, migrate=None
         yield con
     finally:
         con.close()
-
 
 @contextmanager
 def transaction(lock, connect_fn):

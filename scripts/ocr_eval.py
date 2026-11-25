@@ -28,7 +28,6 @@ from backend.transcribe import norm  # noqa: E402
 
 WORDLIST = Path("/usr/share/dict/words")
 
-
 def load_dict(path: Path = WORDLIST) -> set[str] | None:
     """System word list, or None if unavailable (readability is then reported as n/a)."""
     try:
@@ -36,10 +35,8 @@ def load_dict(path: Path = WORDLIST) -> set[str] | None:
     except OSError:
         return None
 
-
 def tokens(text: str) -> list[str]:
     return norm(text).split()
-
 
 def informative_tokens(raw_segments: list[dict], words: set[str] | None, spoken: set[str]) -> set[str]:
     """Normalized tokens from raw OCR that plausibly carry information — not just dictionary words:
@@ -56,7 +53,6 @@ def informative_tokens(raw_segments: list[dict], words: set[str] | None, spoken:
                         or (len(t) >= 3 and seen[t] >= 2)):
                     out.add(t)
     return out
-
 
 def metrics(segs: list[dict], informative: set[str], words: set[str] | None, spoken: set[str]) -> dict:
     alpha = ok = garbled = multi = 0
@@ -83,7 +79,6 @@ def metrics(segs: list[dict], informative: set[str], words: set[str] | None, spo
         "duplicate": sum(c - 1 for c in norms.values()) / len(segs) if segs else 0.0,
     }
 
-
 def _context(reel_id: str) -> str:
     """Caption + hashtags from the source export (protected tokens for fragment labelling)."""
     try:
@@ -96,14 +91,12 @@ def _context(reel_id: str) -> str:
         pass
     return ""
 
-
 def fragment_stats(segs: list[dict], informative: set[str]) -> dict:
     frags = [s for s in segs if s.get("quality") == "fragment"]
     normal_tokens = {t for s in segs if s.get("quality") != "fragment" for t in tokens(s["text"])}
     at_risk = sorted({t for s in frags for t in tokens(s["text"]) if t in informative and t not in normal_tokens})
     return {"fragments": len(frags), "share": len(frags) / len(segs) if segs else 0.0, "at_risk": at_risk,
             "list": [(s["start"], s["confidence"], s["text"], s["quality_reasons"]) for s in frags]}
-
 
 def evaluate_reel(frames, meta, words, reel_id=""):
     tsegs, interval = meta["transcript_segments"], meta["interval_s"]
@@ -118,7 +111,6 @@ def evaluate_reel(frames, meta, words, reel_id=""):
             "m1": metrics(v1, info, words, spoken), "m2": metrics(r2["segments"], info, words, spoken),
             "echo": Counter(s["echo"]["label"] for s in r2["segments"]),
             "frag": fragment_stats(r2["segments"], info)}
-
 
 def evaluate(selection: list[str], loader=evalframes.load, words: set[str] | None = None):
     """→ (results by reel, missing reel ids)."""
@@ -135,10 +127,8 @@ def evaluate(selection: list[str], loader=evalframes.load, words: set[str] | Non
         results[rid] = evaluate_reel(frames, meta, words, rid)
     return results, missing
 
-
 def _pct(v):
     return "  n/a" if v is None else f"{v:.0%}"
-
 
 def report(results: dict, missing: list[str], selection: list[str], words, show: int, side: str | None,
            list_fragments: bool = False) -> int:
@@ -203,7 +193,6 @@ def report(results: dict, missing: list[str], selection: list[str], words, show:
                 print(f"      {start:6.1f}s c={conf:<5} {text!r:28} {', '.join(reasons[3:])}")
     return 2 if missing else 0
 
-
 def main(argv: list[str]) -> int:
     show = int(argv[argv.index("--show") + 1]) if "--show" in argv else 0
     side = argv[argv.index("--side-by-side") + 1] if "--side-by-side" in argv else None
@@ -214,7 +203,6 @@ def main(argv: list[str]) -> int:
     words = load_dict()
     results, missing = evaluate(selection, words=words)
     return report(results, missing, selection, words, show, side, "--fragments" in argv)
-
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))

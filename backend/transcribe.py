@@ -32,15 +32,12 @@ HALLUCINATION_PHRASES = {
 }
 _whisper_lock = threading.Lock()  # MLX/Metal: one transcription at a time
 
-
 class AudioDecodeError(RuntimeError):
     pass
-
 
 def norm(s: str) -> str:
     """Unicode-aware normalization: casefold, collapse non-word chars (\\w covers all scripts)."""
     return re.sub(r"[\W_]+", " ", s.casefold()).strip()
-
 
 def decode_pcm(path: Path) -> np.ndarray:
     """Any container/codec ffmpeg understands → float32 mono 16 kHz. Raises AudioDecodeError."""
@@ -53,13 +50,11 @@ def decode_pcm(path: Path) -> np.ndarray:
         raise AudioDecodeError("no audio samples decoded (missing audio track?)")
     return pcm
 
-
 def levels(pcm: np.ndarray) -> dict:
     peak = float(np.max(np.abs(pcm))) if pcm.size else 0.0
     rms = float(np.sqrt(np.mean(pcm ** 2))) if pcm.size else 0.0
     db = lambda x: round(20 * np.log10(x), 1) if x > 0 else -200.0  # noqa: E731
     return {"duration_s": round(pcm.size / SR, 2), "peak_db": db(peak), "rms_db": db(rms)}
-
 
 def grade_segment(seg: dict) -> tuple[str, list[str]]:
     """→ (tier, flags). tier ∈ confident | uncertain | rejected."""
@@ -79,7 +74,6 @@ def grade_segment(seg: dict) -> tuple[str, list[str]]:
     if nsp > NO_SPEECH_PROB_MAX:
         flags.append("high_no_speech_prob")
     return ("uncertain" if flags else "confident"), flags
-
 
 def transcribe_pcm(pcm: np.ndarray) -> dict:
     """Returns a transcript dict. Never raises: Whisper errors are reported as status=error."""
@@ -111,7 +105,6 @@ def transcribe_pcm(pcm: np.ndarray) -> dict:
             "language": r.get("language"), "segments": segments, "rejected_segments": rejected,
             "text": " ".join(s["text"] for s in confident),
             "uncertain_text": " ".join(s["text"] for s in segments if s["confidence"] == "low")}
-
 
 def transcribe_file(path: Path) -> dict:
     try:

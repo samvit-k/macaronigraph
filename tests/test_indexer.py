@@ -12,7 +12,6 @@ from backend import config, embedder, indexer, jobs, worker
 from helpers import canonical_digest
 from test_chunking import make_record, oseg, seg
 
-
 @pytest.fixture(autouse=True)
 def idx(isolated_output, monkeypatch):
     monkeypatch.setattr(config, "EMBED_MODEL", embedder.HashEmbedder.MODEL)
@@ -24,9 +23,7 @@ def idx(isolated_output, monkeypatch):
     indexer.release_writer()
     assert isolated_output in config.chroma_dir().parents
 
-
 _n = {"i": 0}
-
 
 def add(rid, words="sourdough bread baking", status="ok", ocr=None, extra_transcript=""):
     """Persist an attempt exactly as the worker does (jobs.record_attempt); a new session per attempt."""
@@ -39,18 +36,14 @@ def add(rid, words="sourdough bread baking", status="ok", ocr=None, extra_transc
         rec["capture"]["playback"] = "error"
     return jobs.record_attempt(rec, export=False)
 
-
 def emb():
     return embedder.for_spec(embedder.current_spec())
-
 
 def active_col():
     return indexer.get_collection(indexer.active_collection())
 
-
 def ids_for(col, rid):
     return sorted(col.get(where={"reel_id": rid}, include=[])["ids"])
-
 
 # ---------------------------------------------------------------- basic incremental behaviour
 
@@ -65,7 +58,6 @@ def test_new_reels_are_indexed_and_searchable():
     assert res["results"][0]["reel_id"] == "B" and res["results"][0]["passages"]
     assert indexer.verify(indexer.active_collection())["ok"]
 
-
 def test_unchanged_reels_are_skipped_without_embedding():
     add("A")
     add("B", "python asyncio")
@@ -75,7 +67,6 @@ def test_unchanged_reels_are_skipped_without_embedding():
     assert out["active"]["skipped"] == 2 and out["active"]["embedded"] == 0
     assert emb().calls == calls and "build" not in out
 
-
 def test_new_reel_after_initial_index_is_added_incrementally():
     add("A")
     indexer.sync_all()
@@ -83,7 +74,6 @@ def test_new_reel_after_initial_index_is_added_incrementally():
     out = indexer.sync_all()
     assert out["active"]["embedded"] == 1 and out["active"]["skipped"] == 1
     assert indexer.search("inverse kinematics", k=1)["results"][0]["reel_id"] == "C"
-
 
 def test_improved_canonical_record_replaces_chunks_and_removes_obsolete_ids():
     add("A", "sourdough", ocr=[oseg(1, 2, "Old screen one"), oseg(10, 11, "Old screen two")])
@@ -99,13 +89,11 @@ def test_improved_canonical_record_replaces_chunks_and_removes_obsolete_ids():
     assert col.get(ids=["A:ocr:000"])["documents"] == ["New single screen with a much longer description"]
     assert indexer.verify(indexer.active_collection())["ok"]
 
-
 def test_failed_reel_is_never_indexed():
     add("A")
     add("F", "should not appear", status="failed")
     indexer.sync_all()
     assert ids_for(active_col(), "F") == [] and indexer.status()["eligible"] == 1
-
 
 def test_sync_never_writes_the_job_tables():
     add("A")
@@ -114,7 +102,6 @@ def test_sync_never_writes_the_job_tables():
     indexer.sync_all()
     indexer.sync_all(rebuild=True)
     assert canonical_digest() == before
-
 
 def test_reel_processed_by_the_worker_is_picked_up_by_the_next_sync(monkeypatch):
     add("A")
@@ -131,7 +118,6 @@ def test_reel_processed_by_the_worker_is_picked_up_by_the_next_sync(monkeypatch)
     out = indexer.sync_all()
     assert out["active"]["embedded"] == 1
     assert indexer.search("lidar point cloud", k=1)["results"][0]["reel_id"] == "W1"
-
 
 # ---------------------------------------------------------------- crash safety / orphans / errors
 
@@ -157,7 +143,6 @@ def test_crash_between_upsert_and_state_commit_leaves_no_duplicates(monkeypatch)
     v = indexer.verify(indexer.active_collection())
     assert v["ok"] and v["counts"]["chunks"] == v["counts"]["expected_chunks"] == active_col().count()
 
-
 def test_orphan_reel_chunks_are_swept_even_when_nothing_needs_reembedding():
     add("A")
     indexer.sync_all()
@@ -171,7 +156,6 @@ def test_orphan_reel_chunks_are_swept_even_when_nothing_needs_reembedding():
     assert out["active"]["orphans_deleted"] == 1 and ids_for(col, "GHOST") == []
     assert indexer.verify(indexer.active_collection())["ok"]
 
-
 def test_stray_chunk_of_an_indexed_reel_is_swept():
     add("A")
     indexer.sync_all()
@@ -181,7 +165,6 @@ def test_stray_chunk_of_an_indexed_reel_is_swept():
                metadatas=[{"reel_id": "A", "content_type": "ocr", "source": "instagram"}])
     out = indexer.sync_all()
     assert out["active"]["orphans_deleted"] == 1 and ids_for(col, "A") == expected
-
 
 def test_failed_reindex_preserves_previous_embeddings(monkeypatch):
     add("A", "sourdough starter feeding")
@@ -207,7 +190,6 @@ def test_failed_reindex_preserves_previous_embeddings(monkeypatch):
     assert out["active"]["embedded"] == 1 and indexer.status()["errors"] == 0
     assert indexer.verify(indexer.active_collection())["ok"]
 
-
 def test_indexing_error_blocks_activation_of_a_rebuild(monkeypatch):
     add("A")
     add("B", "python")
@@ -227,7 +209,6 @@ def test_indexing_error_blocks_activation_of_a_rebuild(monkeypatch):
     assert indexer.active_collection() == old
     assert any("indexing errors" in p for p in out["build"]["verification"]["problems"])
 
-
 # ---------------------------------------------------------------- interruption
 
 def test_stopping_before_a_batch_embeds_nothing_and_commits_nothing(monkeypatch):
@@ -242,7 +223,6 @@ def test_stopping_before_a_batch_embeds_nothing_and_commits_nothing(monkeypatch)
     out = indexer.sync_all()                                      # resumes on the next sync
     assert out["build"]["state"] == "activated" and indexer.status()["indexed"] == 3
 
-
 def test_stopping_mid_sync_keeps_committed_reels_and_resumes_the_rest(monkeypatch):
     for r in "ABC":
         add(r, f"topic {r}")
@@ -256,7 +236,6 @@ def test_stopping_mid_sync_keeps_committed_reels_and_resumes_the_rest(monkeypatc
     out = indexer.sync_all()
     assert out["build"]["state"] == "activated" and out["build"]["collection"] == coll
     assert emb().calls == calls + 2                               # only B and C embedded on resume
-
 
 def test_capture_starting_mid_sync_stops_before_the_next_embedding(monkeypatch):
     for r in "ABC":
@@ -280,7 +259,6 @@ def test_capture_starting_mid_sync_stops_before_the_next_embedding(monkeypatch):
     assert out["active"]["stopped"] and emb().calls == calls + 1  # D committed; nothing embedded after Start
     assert indexer.status()["indexed"] == 4
 
-
 # ---------------------------------------------------------------- idle gate
 
 def test_busy_reason_covers_sessions_spool_and_quiet_period():
@@ -294,7 +272,6 @@ def test_busy_reason_covers_sessions_spool_and_quiet_period():
     assert indexer.busy_reason(quiet_s=120, now=time.time() + 121) is None
     (worker.spool_dir() / ".incoming-x").mkdir(parents=True)     # an upload in progress
     assert "processing" in indexer.busy_reason(now=time.time() + 999)
-
 
 def test_auto_loop_waits_for_idle_but_manual_sync_always_runs(monkeypatch):
     add("A")
@@ -313,7 +290,6 @@ def test_auto_loop_waits_for_idle_but_manual_sync_always_runs(monkeypatch):
         assert indexer.active_collection() is not None
     finally:
         assert indexer.stop()
-
 
 # ---------------------------------------------------------------- verified rebuilds
 
@@ -335,7 +311,6 @@ def test_rebuild_catches_reels_processed_during_the_rebuild(monkeypatch):
     assert out["build"]["state"] == "activated" and len(out["build"]["passes"]) >= 2
     assert out["build"]["verification"]["counts"]["eligible"] == 3
     assert ids_for(active_col(), "C")
-
 
 def test_failed_verification_keeps_previous_index_active(monkeypatch):
     add("A")
@@ -360,7 +335,6 @@ def test_failed_verification_keeps_previous_index_active(monkeypatch):
     out = indexer.sync_all()                                      # the pending build resumes, repairs, passes
     assert out["build"]["state"] == "activated" and indexer.active_collection() != old
 
-
 def test_signature_change_builds_new_collection_while_old_stays_active(monkeypatch):
     add("A")
     add("B", "python")
@@ -379,7 +353,6 @@ def test_signature_change_builds_new_collection_while_old_stays_active(monkeypat
     assert indexer.spec_of(indexer.get_collection(new))["dim"] == 32
     assert old in indexer.collections()                          # retired, not dropped yet (grace period)
 
-
 # ---------------------------------------------------------------- retirement of replaced collections
 
 def test_replaced_collection_is_not_dropped_while_a_search_uses_it():
@@ -396,7 +369,6 @@ def test_replaced_collection_is_not_dropped_while_a_search_uses_it():
     assert indexer.cleanup_retired(now=time.time() + indexer.RETIRE_GRACE_S + 1) == [old]
     assert old not in indexer.collections() and indexer.state_rows(old) == {}
 
-
 # ---------------------------------------------------------------- writer lock on shutdown
 
 def _other_process_can_lock() -> bool:
@@ -409,7 +381,6 @@ def _other_process_can_lock() -> bool:
         return False
     finally:
         fd.close()
-
 
 def test_stop_keeps_writer_lock_while_indexer_thread_is_still_writing(monkeypatch):
     assert indexer.acquire_writer()
@@ -434,13 +405,11 @@ def test_stop_keeps_writer_lock_while_indexer_thread_is_still_writing(monkeypatc
     assert indexer.stop() is True
     assert not indexer.holds_writer() and _other_process_can_lock()
 
-
 def test_second_writer_is_refused_while_lock_is_held():
     assert indexer.acquire_writer()
     assert not _other_process_can_lock()
     assert indexer.release_writer()
     assert _other_process_can_lock()
-
 
 # ---------------------------------------------------------------- search behaviour
 
@@ -453,14 +422,12 @@ def test_fragments_are_findable_but_down_weighted():
     assert frag["reel_id"] == "A" and frag["ocr_quality"] == "fragment"
     assert frag["score"] == pytest.approx(frag["similarity"] * config.FRAGMENT_WEIGHT, abs=1e-3)
 
-
 def test_type_and_source_filters():
     add("A", "sourdough", ocr=[oseg(1, 2, "Flour water salt")])
     indexer.sync_all()
     res = indexer.search("flour", k=5, types=["transcript"], group="none")
     assert res["results"] and {h["content_type"] for h in res["results"]} == {"transcript"}
     assert indexer.search("flour", source="test")["results"] == []
-
 
 def test_search_before_any_index_is_not_ready():
     with pytest.raises(indexer.IndexNotReady):

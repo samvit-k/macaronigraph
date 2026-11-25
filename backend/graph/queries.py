@@ -19,7 +19,6 @@ from .store import Neo4jStore
 STATUS_EXPR = """CASE WHEN a.status IN ['verified','rejected'] THEN a.status
                       WHEN support >= 2 THEN 'corroborated' ELSE 'proposed' END"""
 
-
 def resolve(store: Neo4jStore, name: str) -> dict | None:
     """Concept by canonical key, else by name/alias (case-insensitive), else best full-text hit."""
     key = nz.canonicalize(name)[0]
@@ -40,7 +39,6 @@ def resolve(store: Neo4jStore, name: str) -> dict | None:
         rows = []
     return rows[0] if rows else None
 
-
 def counts(store: Neo4jStore) -> dict:
     nodes = {r["label"]: r["n"] for r in store.run("MATCH (n) UNWIND labels(n) AS label RETURN label, count(*) AS n")}
     rels = {r["t"]: r["n"] for r in store.run("MATCH ()-[r]->() RETURN type(r) AS t, count(*) AS n")}
@@ -51,7 +49,6 @@ def counts(store: Neo4jStore) -> dict:
     ready = {str(r["ready"]): r["n"] for r in store.run(
         "MATCH (r:Reel) RETURN coalesce(r.retrieval_ready, false) AS ready, count(*) AS n")}
     return {"nodes": nodes, "relationships": rels, "assertion_status": status, "reels_ready": ready}
-
 
 def status(store: Neo4jStore | None = None) -> dict:
     store = store or Neo4jStore()
@@ -67,7 +64,6 @@ def status(store: Neo4jStore | None = None) -> dict:
         out["neo4j"] = {"online": False, "reason": str(e)}
     return out
 
-
 def reel_concepts(store: Neo4jStore, reel_id: str) -> dict:
     reel = store.run("MATCH (r:Reel {reel_id: $rid}) RETURN r {.*} AS r", rid=reel_id)
     concepts = store.run("""
@@ -80,7 +76,6 @@ def reel_concepts(store: Neo4jStore, reel_id: str) -> dict:
         ORDER BY passages DESC, name""", rid=reel_id)
     assertions = evidence(store, reel_id=reel_id)
     return {"reel": reel[0]["r"] if reel else None, "concepts": concepts, "assertions": assertions}
-
 
 def concept_reels(store: Neo4jStore, name: str) -> dict:
     c = resolve(store, name)
@@ -95,7 +90,6 @@ def concept_reels(store: Neo4jStore, name: str) -> dict:
         ORDER BY passages DESC""", k=c["key"])
     return {"concept": c, "reels": reels}
 
-
 def shared(store: Neo4jStore, min_reels: int = 2, limit: int = 50) -> list[dict]:
     return store.run("""
         MATCH (c:Concept)<-[:MENTIONS]-(:Passage)<-[:HAS_PASSAGE]-(r:Reel)
@@ -103,7 +97,6 @@ def shared(store: Neo4jStore, min_reels: int = 2, limit: int = 50) -> list[dict]
         WHERE size(reels) >= $m
         RETURN c.key AS key, c.name AS name, c.type AS type, size(reels) AS n_reels, reels[0..8] AS reels
         ORDER BY n_reels DESC, name LIMIT $lim""", m=min_reels, lim=limit)
-
 
 def evidence(store: Neo4jStore, a: str | None = None, b: str | None = None, reel_id: str | None = None,
              include_rejected: bool = False) -> list[dict]:
@@ -132,7 +125,6 @@ def evidence(store: Neo4jStore, a: str | None = None, b: str | None = None, reel
         ORDER BY CASE status WHEN 'verified' THEN 0 WHEN 'corroborated' THEN 1 WHEN 'proposed' THEN 2 ELSE 3 END,
                  subject, predicate""", **params)
 
-
 def between(store: Neo4jStore, a: str, b: str, include_rejected: bool = False) -> dict:
     ca, cb = resolve(store, a), resolve(store, b)
     if not ca or not cb:
@@ -155,7 +147,6 @@ def between(store: Neo4jStore, a: str, b: str, include_rejected: bool = False) -
             "co_mentioned_in": co, "co_mention_note": "same Reel only; not a relationship",
             "two_hop": hops, "two_hop_note": "paths through model-proposed assertions; not verified"}
 
-
 # ---------------------------------------------------------------- Phase 4B hooks (helpers only)
 
 def concepts_for_chunks(store: Neo4jStore, chunk_ids: list[str], ready_only: bool = True) -> list[dict]:
@@ -165,7 +156,6 @@ def concepts_for_chunks(store: Neo4jStore, chunk_ids: list[str], ready_only: boo
         WHERE p.chunk_id IN $ids AND (NOT $ready OR r.retrieval_ready)
         RETURN p.chunk_id AS chunk_id, c.key AS key, c.name AS name, c.type AS type, m.surface AS surface""",
                      ids=list(chunk_ids), ready=ready_only)
-
 
 def neighbors(store: Neo4jStore, keys: list[str], include_proposed: bool = True, limit: int = 50) -> list[dict]:
     """One hop over assertions from the given concepts (statuses returned; rejected excluded)."""
@@ -178,7 +168,6 @@ def neighbors(store: Neo4jStore, keys: list[str], include_proposed: bool = True,
         WHERE $prop OR status <> 'proposed'
         RETURN c.key AS from, a.predicate AS predicate, n.key AS to, n.name AS name, status, support,
                a.reel_id AS reel_id, a.chunk_id AS chunk_id LIMIT $lim""", keys=list(keys), prop=include_proposed, lim=limit)
-
 
 # ---------------------------------------------------------------- verification
 
@@ -261,7 +250,6 @@ def verify(store: Neo4jStore | None = None, check_chroma: bool = True) -> dict:
     hard = [p for p in problems if not p.startswith("(info)")]
     return {"ok": not hard, "problems": problems, "reels_in_graph": len(graph), "eligible": len(elig),
             "extractor_versions": versions}
-
 
 def _distinct_identifiers(keys: list[str]) -> bool:
     """Keys that only collide after stripping hyphens/spaces but are deliberately distinct (cuda-q vs cudaq is a

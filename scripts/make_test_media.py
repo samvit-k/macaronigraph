@@ -67,10 +67,8 @@ NON_SPEECH = {
                   "caption": "music test clip 🎵"},
 }
 
-
 def run(cmd, **kw):
     return subprocess.run(cmd, check=True, capture_output=True, **kw)
-
 
 def duration(path: Path, stream: str | None = None) -> float:
     sel = ["-select_streams", stream, "-show_entries", "stream=duration"] if stream \
@@ -78,13 +76,11 @@ def duration(path: Path, stream: str | None = None) -> float:
     out = run([FFPROBE, "-v", "error", *sel, "-of", "csv=p=0", str(path)], text=True)
     return float(out.stdout.strip().splitlines()[0])
 
-
 def max_volume_db(path: Path, start: float, end: float) -> float:
     err = subprocess.run([config.FFMPEG, "-v", "info", "-ss", str(start), "-to", str(end), "-i", str(path),
                           "-af", "volumedetect", "-vn", "-f", "null", "-"], capture_output=True, text=True).stderr
     m = re.search(r"max_volume:\s*(-?[\d.]+|-inf) dB", err)
     return float(m.group(1)) if m and m.group(1) != "-inf" else -200.0
-
 
 def card_schedule(cards: list[str], total: float) -> list[dict]:
     """Cards evenly split the clip, with a small gap between them."""
@@ -92,14 +88,12 @@ def card_schedule(cards: list[str], total: float) -> list[dict]:
     return [{"text": t, "start": round(i * span + 0.2, 2), "end": round((i + 1) * span - 0.2, 2)}
             for i, t in enumerate(cards)]
 
-
 def drawtext(card: dict, y: str = "(h-text_h)/2", size: int = 64) -> str:
     y, size = card.get("y", y), card.get("size", size)
     size = min(size, int(1000 / max(len(card["text"]), 1)))  # Arial Bold ≈ 0.72em/char; keep inside 720 px
     return (f"drawtext=fontfile='{FONT}':text='{card['text']}':fontcolor=white:fontsize={size}:"
             f"box=1:boxcolor=black@0.6:boxborderw=24:x=(w-text_w)/2:y={y}:"
             f"enable='between(t,{card['start']},{card['end']})'")
-
 
 def render(out: Path, audio_args: list[str], total: float, cards: list[dict], extra: list[dict] = ()):
     filters = [drawtext(c) for c in cards] + [drawtext(c, y="h*0.2", size=56) for c in extra]
@@ -111,11 +105,9 @@ def render(out: Path, audio_args: list[str], total: float, cards: list[dict], ex
          "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "veryfast",
          "-c:a", "aac", "-b:a", "128k", "-t", str(total), str(out)])
 
-
 def mojibake(s: str) -> str:
     """Reproduce Instagram's export encoding (UTF-8 bytes rendered as latin-1 code points)."""
     return s.encode("utf-8").decode("latin-1")
-
 
 def post(reel_id: str, caption: str, ts: int) -> dict:
     return {"timestamp": ts, "media": [], "label_values": [
@@ -129,7 +121,6 @@ def post(reel_id: str, caption: str, ts: int) -> dict:
                             {"label": "Username", "value": "test_creator"}], "title": ""}], "title": "Owner"},
         {"dict": [], "title": "Brand partner"},
     ]}
-
 
 def generate() -> None:
     media = config.TEST_MEDIA_DIR
@@ -192,7 +183,6 @@ def generate() -> None:
     config.TEST_GROUND_TRUTH.write_text(json.dumps(truth, indent=2))
     config.TEST_POSTS_PATH.write_text(json.dumps(posts, indent=1))
 
-
 def ocr_at(path: Path, t: float) -> str:
     from PIL import Image
     import pytesseract
@@ -200,7 +190,6 @@ def ocr_at(path: Path, t: float) -> str:
     png = run([config.FFMPEG, "-v", "error", "-ss", str(t), "-i", str(path), "-frames:v", "1",
                "-f", "image2pipe", "-vcodec", "png", "-"]).stdout
     return pytesseract.image_to_string(Image.open(io.BytesIO(png)).convert("L")).upper()
-
 
 def verify() -> bool:
     """Check generated media against ground truth. Returns True if all checks pass."""
@@ -240,7 +229,6 @@ def verify() -> bool:
             mid = (s["start"] + s["end"]) / 2
             report(s["text"] in " ".join(ocr_at(path, mid).split()), f"subtitle '{s['text']}' visible at {mid:.2f}s")
     return ok
-
 
 if __name__ == "__main__":
     if "--verify-only" not in sys.argv:

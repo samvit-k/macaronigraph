@@ -19,7 +19,6 @@ EXPECT = {"speech": "ok", "silent": "ok_no_speech", "non_speech": "ok_no_speech"
 MAX_WER = 0.15
 MAX_SUBTITLE_WER = 0.2
 
-
 def validate(sid: str, rows: list[dict], truth: dict, expected_ids: list[str] | None) -> tuple[list[str], list[str]]:
     """→ (report lines, failures). Pure: no file IO."""
     out, fails = [], []
@@ -88,7 +87,6 @@ def validate(sid: str, rows: list[dict], truth: dict, expected_ids: list[str] | 
             fails.append(f"{rid}: expected but no record in session")
     return out, fails
 
-
 def main(argv: list[str]) -> int:
     args = [a for a in argv if not a.startswith("--expect")]
     expect_arg = next((a.split("=", 1)[1] if "=" in a else argv[argv.index(a) + 1]
@@ -116,7 +114,6 @@ def main(argv: list[str]) -> int:
     print("\n".join(report))
     print("\n" + ("ALL CHECKS PASSED" if not fails else "FAILURES:\n  " + "\n  ".join(fails)))
     return 1 if fails else 0
-
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))

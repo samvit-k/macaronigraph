@@ -9,7 +9,6 @@ from test_indexer import add
 
 client = TestClient(app)   # no lifespan: the background worker/indexer threads are not started
 
-
 @pytest.fixture(autouse=True)
 def _iso(isolated_output, monkeypatch):
     monkeypatch.setattr(config, "EMBED_MODEL", embedder.HashEmbedder.MODEL)
@@ -19,11 +18,9 @@ def _iso(isolated_output, monkeypatch):
     yield
     indexer.release_writer()
 
-
 def test_search_is_503_before_an_index_exists():
     r = client.get("/api/search", params={"q": "anything"})
     assert r.status_code == 503 and "no index" in r.json()["detail"]
-
 
 def test_sync_then_grouped_search_shape():
     add("A", "sourdough bread baking", ocr=[oseg(1, 2, "Flour 500g\nWater 350g")])
@@ -39,7 +36,6 @@ def test_sync_then_grouped_search_shape():
     assert {"chunk_id", "content_type", "text", "start", "end", "score", "similarity", "passage_ids"} <= set(p)
     assert len(top["passages"]) <= 3
 
-
 def test_raw_passages_and_type_filter():
     add("A", "sourdough", ocr=[oseg(1, 2, "Flour water salt")])
     client.post("/api/index/sync", params={"wait": 1})
@@ -49,7 +45,6 @@ def test_raw_passages_and_type_filter():
     assert client.get("/api/search", params={"q": "x", "types": "bogus"}).status_code == 400
     assert client.get("/api/search", params={"q": "x", "group": "bogus"}).status_code == 400
     assert client.get("/api/search", params={"q": ""}).status_code == 422
-
 
 def test_index_status_and_health_summary():
     add("A")
@@ -61,7 +56,6 @@ def test_index_status_and_health_summary():
     assert (st["eligible"], st["indexed"], st["pending"], st["errors"]) == (1, 1, 0, 0) and st["chunks"] > 0
     h = client.get("/api/health").json()["index"]
     assert h["active"] == st["active"] and h["build"] == "activated"
-
 
 def test_sync_conflict_when_another_process_owns_the_index(monkeypatch):
     monkeypatch.setattr(indexer, "acquire_writer", lambda: False)

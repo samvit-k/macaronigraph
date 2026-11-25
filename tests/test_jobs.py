@@ -9,17 +9,14 @@ from fastapi.testclient import TestClient
 from backend import config, jobs
 from backend.app import app
 
-
 @pytest.fixture(autouse=True)
 def _iso(isolated_output):
     jobs._export_state.update(pending=0, last=0.0)
     return isolated_output
 
-
 def posts(n=5):
     return [{"reel_id": f"R{i}", "source_url": f"https://www.instagram.com/reel/R{i}/", "source_index": i,
              "media_type": "reel", "saved_at": None} for i in range(n)]
-
 
 def rec(rid, sid, status="ok", errors=(), playback="ok", detail=None, text="some words"):
     return {"reel_id": rid, "session_id": sid, "processed_at": "2026-11-23T00:00:00+00:00",
@@ -27,15 +24,12 @@ def rec(rid, sid, status="ok", errors=(), playback="ok", detail=None, text="some
             "capture": {"playback": playback, "playback_detail": detail},
             "transcript": {"text": text if status != "failed" else ""}, "ocr": {"segments": []}}
 
-
 def state(rid):
     with jobs.connect() as con:
         return dict(con.execute("SELECT * FROM reels WHERE reel_id=?", (rid,)).fetchone())
 
-
 def canonical_lines():
     return jobs.read_jsonl(config.OUTPUT_JSONL)
-
 
 # ---------------------------------------------------------------- import / leasing / resume
 
@@ -45,7 +39,6 @@ def test_import_is_idempotent_and_never_resets_state():
     jobs.record_attempt(rec("R0", "ig-a"))
     assert jobs.import_posts("ig", posts(3)) == 0           # duplicate import adds nothing
     assert state("R0")["state"] == "done" and state("R0")["attempts"] == 1
-
 
 def test_sessions_do_not_share_leases_and_resume_skips_done():
     jobs.import_posts("ig", posts(5))
@@ -59,13 +52,11 @@ def test_sessions_do_not_share_leases_and_resume_skips_done():
     c = jobs.create_session("ig-c", "ig", 10)
     assert [i["reel_id"] for i in c] == ["R2", "R3", "R4"]   # done Reels are not re-queued
 
-
 def test_interrupted_session_is_reclaimed_only_when_stale():
     jobs.import_posts("ig", posts(3))
     t0 = time.time() - 2 * jobs.STALE_SESSION_S
     jobs.create_session("ig-old", "ig", 2, now=t0)            # crashed: no heartbeat since t0
     assert [i["reel_id"] for i in jobs.create_session("ig-new", "ig", 10)] == ["R0", "R1", "R2"]
-
 
 def test_heartbeat_keeps_long_running_session_alive():
     jobs.import_posts("ig", posts(3))
@@ -74,7 +65,6 @@ def test_heartbeat_keeps_long_running_session_alive():
     assert jobs.heartbeat("ig-long")                          # …but the extension is still heart-beating
     assert [i["reel_id"] for i in jobs.create_session("ig-other", "ig", 10)] == ["R2"]
     assert state("R0")["lease_session"] == "ig-long"
-
 
 @pytest.mark.parametrize("mode", ["all", "eval"])
 def test_unprocessed_reprocess_lease_restores_prior_state(mode):
@@ -91,13 +81,11 @@ def test_unprocessed_reprocess_lease_restores_prior_state(mode):
     jobs.create_session("ig-d", "ig", 0)
     assert [state(r)["state"] for r in ("R0", "R1", "R2")] == ["done", "needs_retry", "pending"]
 
-
 def test_heartbeat_after_finish_is_rejected():
     jobs.import_posts("ig", posts(1))
     jobs.create_session("ig-a", "ig", 1)
     jobs.finish_session("ig-a")
     assert jobs.heartbeat("ig-a") is False
-
 
 # ---------------------------------------------------------------- duplicates & retries
 
@@ -109,7 +97,6 @@ def test_duplicate_upload_is_idempotent():
     assert again["duplicate"] and again["attempt_id"] == first["attempt_id"]
     assert state("R0")["attempts"] == 1 and state("R0")["state"] == "needs_retry"
     assert jobs.status()["attempts"] == 1
-
 
 def test_retries_then_exhausted_with_best_attempt_canonical():
     jobs.import_posts("ig", posts(1))
@@ -125,7 +112,6 @@ def test_retries_then_exhausted_with_best_attempt_canonical():
     assert line["status"] == "partial" and line["processing"]["canonical_attempt_id"] == outs[1]["attempt_id"]
     assert len(line["processing"]["history"]) == 3
 
-
 def test_free_retries_do_not_consume_attempts():
     jobs.import_posts("ig", posts(1))
     for i, pb in enumerate(["auth_required", "aborted", "capture_lost"]):
@@ -133,7 +119,6 @@ def test_free_retries_do_not_consume_attempts():
         out = jobs.record_attempt(rec("R0", f"ig-{i}", "failed", [pb], playback=pb))
         assert out["outcome"] == "retry_free" and out["state"] == "pending"
     assert state("R0")["attempts"] == 0
-
 
 def test_unavailable_confirmed_twice_becomes_permanent_but_rate_limit_does_not():
     jobs.import_posts("ig", posts(2))
@@ -145,13 +130,11 @@ def test_unavailable_confirmed_twice_becomes_permanent_but_rate_limit_does_not()
                                     detail="rate limited by site"))
     assert a["state"] == "failed_permanent" and b["state"] == "needs_retry"
 
-
 def test_acceptable_partial_is_done_but_muted_partial_retries():
     jobs.import_posts("ig", posts(2))
     jobs.create_session("ig-a", "ig", 2)
     assert jobs.record_attempt(rec("R0", "ig-a", "partial", ["truncated_at_capture_limit: 180 of 240"]))["state"] == "done"
     assert jobs.record_attempt(rec("R1", "ig-a", "partial", ["audio_muted: x"]))["state"] == "needs_retry"
-
 
 def test_reprocess_never_regresses_a_done_reel():
     jobs.import_posts("ig", posts(1))
@@ -164,7 +147,6 @@ def test_reprocess_never_regresses_a_done_reel():
     (line,) = canonical_lines()
     assert line["status"] == "ok" and [h["status"] for h in line["processing"]["history"]] == ["ok", "failed"]
 
-
 def test_canonical_export_one_line_per_reel_and_history_complete():
     jobs.import_posts("ig", posts(3))
     for s in ("ig-a", "ig-b"):
@@ -174,7 +156,6 @@ def test_canonical_export_one_line_per_reel_and_history_complete():
     jobs.export_canonical()
     assert [l["reel_id"] for l in canonical_lines()] == ["R0", "R1", "R2"]
     assert len(jobs.read_jsonl(jobs.attempts_jsonl())) == 6
-
 
 def test_jsonl_survives_unicode_line_separators():
     """Real case: an Instagram export caption (raw mojibake) contained U+0085, which str.splitlines() splits on."""
@@ -192,7 +173,6 @@ def test_jsonl_survives_unicode_line_separators():
         assert len(text.splitlines()) == len(jobs.read_jsonl(path)) == 1      # even naive readers agree
         assert jobs.read_jsonl(path)[0]["metadata"]["raw"]["caption"] == tricky  # value round-trips exactly
 
-
 def test_export_is_debounced():
     jobs.import_posts("ig", posts(12))
     jobs.create_session("ig-a", "ig", 12)
@@ -205,7 +185,6 @@ def test_export_is_debounced():
     jobs.finish_session("ig-a")                                # finishing always exports
     assert not config.OUTPUT_JSONL.with_suffix(".jsonl.tmp").exists()
 
-
 # ---------------------------------------------------------------- migration
 
 def write_phase1():
@@ -213,7 +192,6 @@ def write_phase1():
     config.OUTPUT_JSONL.parent.mkdir(parents=True, exist_ok=True)
     config.OUTPUT_JSONL.write_text("".join(json.dumps(l) + "\n" for l in lines))
     return config.OUTPUT_JSONL.read_bytes()
-
 
 def test_migration_backs_up_and_is_rerunnable():
     original = write_phase1()
@@ -224,7 +202,6 @@ def test_migration_backs_up_and_is_rerunnable():
     assert jobs.get_meta("phase1_migration_in_progress") is None
     again = jobs.migrate_phase1(sources={"ig": posts(2)})       # re-run: reads the backup, imports nothing
     assert again["imported"] == 0 and again["skipped"] == 3 and jobs.status()["attempts"] == 3
-
 
 @pytest.mark.parametrize("resume_explicitly", [False, True])
 def test_interrupted_migration_resumes_without_loss_or_duplicates(monkeypatch, resume_explicitly):
@@ -256,7 +233,6 @@ def test_interrupted_migration_resumes_without_loss_or_duplicates(monkeypatch, r
     assert jobs.get_meta("phase1_migration_in_progress") is None
     assert len(list((config.OUTPUT_DIR / "backup").glob("*.jsonl"))) == 1   # no second backup of the garbage
 
-
 # ---------------------------------------------------------------- through the API
 
 def test_api_duplicate_post_is_not_reprocessed(monkeypatch):
@@ -269,7 +245,6 @@ def test_api_duplicate_post_is_not_reprocessed(monkeypatch):
     monkeypatch.setattr("backend.record.build_record", lambda *a, **k: called.append(1))
     r2 = client.post("/api/process", data={"meta": json.dumps(meta)}).json()
     assert r2["duplicate"] and r2["attempt_id"] == r1["attempt_id"] and not called
-
 
 def test_api_session_heartbeat_finish_cycle():
     client = TestClient(app)

@@ -4,32 +4,26 @@ import pytest
 from backend import answer, sufficiency as sf
 from test_answer import ask, src
 
-
 @pytest.fixture(autouse=True)
 def iso(isolated_output):
     yield
 
-
 def pack(sim, text="ARM grew from RISC, short fixed commands."):
     return {"sources": [{**src("S1", "A", text), "similarity": sim}], "connections": {}}
-
 
 def test_signals_report_best_similarity_and_missing_question_terms():
     sig = sf.signals("How does ARM compare with quantum annealing?", pack(0.61))
     assert sig["best_sim"] == 0.61 and "quant" in sig["missing"] and "arm" not in sig["missing"]
     assert 0 < sig["coverage"] < 1
 
-
 def test_graph_only_passages_have_no_similarity_and_never_trigger_the_similarity_gate():
     sig = sf.signals("ARM?", pack(None))
     assert sig["best_sim"] is None and sf.decide("hard_sim", sig) is None
-
 
 def test_off_means_no_gate_and_generation_happens(monkeypatch):
     monkeypatch.setitem(answer.DEFAULTS, "sufficiency", "off")
     out, llm = ask({"s": [{"t": "ARM grew from RISC.", "c": ["S1"], "k": "src"}]}, pack=pack(0.1))
     assert llm.calls == 1 and out["status"] == "ok" and out["gate"] is None
-
 
 def test_hard_similarity_gate_abstains_without_generating(monkeypatch):
     monkeypatch.setitem(answer.DEFAULTS, "sufficiency", "hard_sim")
@@ -37,12 +31,10 @@ def test_hard_similarity_gate_abstains_without_generating(monkeypatch):
     assert llm.calls == 0 and out["status"] == "insufficient_evidence" and out["gate"]["abstained"]
     assert out["text"] == answer.ABSTAIN
 
-
 def test_hard_similarity_gate_lets_a_well_matched_question_through(monkeypatch):
     monkeypatch.setitem(answer.DEFAULTS, "sufficiency", "hard_sim")
     out, llm = ask({"s": [{"t": "ARM grew from RISC.", "c": ["S1"], "k": "src"}]}, pack=pack(0.8))
     assert llm.calls == 1 and out["status"] == "ok" and not out["gate"]["abstained"]
-
 
 def test_soft_mode_warns_the_model_about_missing_terms_but_never_decides_itself(monkeypatch):
     monkeypatch.setitem(answer.DEFAULTS, "sufficiency", "soft")
@@ -52,7 +44,6 @@ def test_soft_mode_warns_the_model_about_missing_terms_but_never_decides_itself(
     assert llm.calls == 1 and "quantum" in note and "annealing" in note and "arm" not in note.split(", ")
     assert out["status"] == "ok"
 
-
 def test_a_supported_negative_answer_is_kept_as_an_answer(monkeypatch):
     # "the Reel says you do NOT need X" is evidence, not an abstention — no rule turns it into one
     monkeypatch.setitem(answer.DEFAULTS, "sufficiency", "soft")
@@ -61,12 +52,10 @@ def test_a_supported_negative_answer_is_kept_as_an_answer(monkeypatch):
                  q="Do I need shader math to become a game designer?", pack=p)
     assert out["status"] == "ok"
 
-
 def test_the_gate_does_not_bypass_citation_validation(monkeypatch):
     monkeypatch.setitem(answer.DEFAULTS, "sufficiency", "hard_sim")
     out, _ = ask({"s": [{"t": "The answer is 42.", "c": ["S9"], "k": "src"}]}, pack=pack(0.9))
     assert out["status"] == "insufficient_evidence"
-
 
 def test_hard_sim_anchor_needs_both_low_similarity_and_a_missing_term():
     low_missing = {"best_sim": 0.40, "missing": ["tire"], "missing_words": ["tire"], "coverage": 0.5}
@@ -77,7 +66,6 @@ def test_hard_sim_anchor_needs_both_low_similarity_and_a_missing_term():
     assert sf.decide("hard_sim_anchor", low_covered, 0.55) is None      # entity lookup via graph/lexical
     assert sf.decide("hard_sim_anchor", high_missing, 0.55) is None
     assert sf.decide("hard_sim_anchor", {**low_missing, "best_sim": None}, 0.55) is None
-
 
 def test_hard_gates_never_apply_to_follow_up_turns(monkeypatch):
     # A follow-up ("Which of the two …?") has signals computed on context-dependent text: it is always generated.

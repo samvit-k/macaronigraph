@@ -50,10 +50,8 @@ CANONICAL_TABLES = ("reels", "attempts")
 CHROMA_BOOKKEEPING = {"acquire_write": ["id", "lock_status"]}
 NODE_KEYS = {"Reel": "reel_id", "Passage": "chunk_id", "Concept": "key", "Assertion": "id"}
 
-
 class Incomplete(RuntimeError):
     pass
-
 
 # ---------------------------------------------------------------- helpers
 
@@ -67,7 +65,6 @@ def _ro(path: Path):
     finally:
         con.close()
 
-
 def _table_digest(con: sqlite3.Connection, table: str) -> dict:
     h, n = hashlib.sha256(), 0
     cols = [r[1] for r in con.execute(f'PRAGMA table_info("{table}")')]
@@ -77,14 +74,12 @@ def _table_digest(con: sqlite3.Connection, table: str) -> dict:
         n += 1
     return {"rows": n, "columns": cols, "sha256": h.hexdigest()}
 
-
 def _file_sha(p: Path) -> str:
     h = hashlib.sha256()
     with p.open("rb") as f:
         for b in iter(lambda: f.read(1 << 20), b""):
             h.update(b)
     return h.hexdigest()
-
 
 # ---------------------------------------------------------------- sources
 
@@ -95,7 +90,6 @@ def canonical(output_dir: Path) -> dict:
         if missing:
             raise Incomplete(f"canonical tables missing: {missing}")
         return {t: _table_digest(con, t) for t in CANONICAL_TABLES}
-
 
 def chroma(chroma_dir: Path) -> dict:
     with _ro(chroma_dir / "chroma.sqlite3") as con:
@@ -114,18 +108,15 @@ def chroma(chroma_dir: Path) -> dict:
         out["segments"][seg.name] = {f.name: {"bytes": f.stat().st_size, "sha256": _file_sha(f)} for f in files}
     return out
 
-
 def _canonical_id(labels: list[str], props: dict) -> str:
     ids = [f"{lb}:{props[NODE_KEYS[lb]]}" for lb in sorted(labels) if lb in NODE_KEYS and props.get(NODE_KEYS[lb]) is not None]
     if len(ids) != 1:
         raise Incomplete(f"node with labels {sorted(labels)} has {len(ids)} canonical ids")
     return ids[0]
 
-
 NODES_Q = "MATCH (n) RETURN elementId(n) AS eid, labels(n) AS labels, properties(n) AS props"
 RELS_Q = ("MATCH (a)-[r]->(b) RETURN type(r) AS type, elementId(a) AS a, elementId(b) AS b, "
           "properties(r) AS props")
-
 
 def neo4j_from_rows(nodes: list[dict], rels: list[dict]) -> dict:
     """Pure function over query rows (testable without a server)."""
@@ -149,7 +140,6 @@ def neo4j_from_rows(nodes: list[dict], rels: list[dict]) -> dict:
             "nodes_sha256": hashlib.sha256("\n".join(sorted(node_lines)).encode()).hexdigest(),
             "relationships_sha256": hashlib.sha256("\n".join(sorted(rel_lines)).encode()).hexdigest()}
 
-
 def neo4j(query=None) -> dict:
     """query(cypher) → list of dict rows; default: a READ-access session on the configured server."""
     if query is None:
@@ -170,7 +160,6 @@ def neo4j(query=None) -> dict:
         return neo4j_from_rows(rows[NODES_Q], rows[RELS_Q])
     return neo4j_from_rows(query(NODES_Q), query(RELS_Q))
 
-
 # ---------------------------------------------------------------- idle check (read-only)
 
 def _lock_held(path: Path) -> bool:
@@ -186,7 +175,6 @@ def _lock_held(path: Path) -> bool:
         return False
     finally:
         os.close(fd)
-
 
 def busy(output_dir: Path, now: float | None = None) -> list[str]:
     now = now or time.time()
@@ -211,7 +199,6 @@ def busy(output_dir: Path, now: float | None = None) -> list[str]:
             out.append(f"{name} lock is held")
     return out
 
-
 # ---------------------------------------------------------------- digest / verify / compare
 
 def digest(output_dir: Path | None = None, chroma_dir: Path | None = None, query=None) -> dict:
@@ -228,7 +215,6 @@ def digest(output_dir: Path | None = None, chroma_dir: Path | None = None, query
     out["complete"] = not out["errors"]
     return out
 
-
 def run_verify() -> dict:
     res = {}
     for name, mod in (("indexer_verify", "backend.indexer"), ("graph_verify", "backend.graph")):
@@ -242,14 +228,12 @@ def run_verify() -> dict:
         res[name] = {"ok": ok, "returncode": p.returncode, "result": data}
     return res
 
-
 def _flat(d, prefix=""):
     for k, v in d.items():
         if isinstance(v, dict):
             yield from _flat(v, f"{prefix}{k}.")
         else:
             yield f"{prefix}{k}", v
-
 
 def compare(a: dict, b: dict) -> tuple[str, list[str]]:
     problems = [f"{n}: incomplete ({', '.join(x.get('errors') or {}) or 'not marked complete'})"
@@ -269,9 +253,7 @@ def compare(a: dict, b: dict) -> tuple[str, list[str]]:
              if k.startswith(book) and not k.endswith(".sha256")]
     return ("DIFFERENT", diff + notes) if diff else ("IDENTICAL", notes)
 
-
 EXIT = {"IDENTICAL": 0, "DIFFERENT": 1, "INCOMPLETE": 2}
-
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
@@ -313,7 +295,6 @@ def main(argv=None) -> int:
                "verify": {k: v["ok"] for k, v in (d.get("verify") or {}).items()}}
     print(json.dumps(summary, indent=1))
     return 0 if d["complete"] else 2
-
 
 if __name__ == "__main__":
     sys.exit(main())

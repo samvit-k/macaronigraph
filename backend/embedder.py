@@ -28,7 +28,6 @@ MAX_SEQ_LENGTH = 1024        # chunks are ≤ ~1.2k chars + header; caps memory 
 # `dim` is None for real models (fixed by model + revision); set explicitly where the spec chooses it.
 SPEC_KEYS = ("model", "revision", "dtype", "normalize", "doc_prompt", "max_seq_length", "dim", "chunker")
 
-
 def resolve_revision(model_id: str) -> str:
     """Commit hash of the locally cached snapshot (refs/main in the HF cache); downloads once if missing."""
     from pathlib import Path
@@ -40,7 +39,6 @@ def resolve_revision(model_id: str) -> str:
         return ref.read_text().strip()
     return str(snapshot_download(model_id)).rstrip("/").split("/")[-1]
 
-
 def is_cached(model_id: str) -> bool:
     from pathlib import Path
 
@@ -48,7 +46,6 @@ def is_cached(model_id: str) -> bool:
 
     ref = Path(constants.HF_HUB_CACHE) / f"models--{model_id.replace('/', '--')}" / "refs" / "main"
     return ref.is_file() and (ref.parent.parent / "snapshots" / ref.read_text().strip()).is_dir()
-
 
 def current_spec(model_id: str | None = None) -> dict:
     model_id = model_id or config.EMBED_MODEL
@@ -58,10 +55,8 @@ def current_spec(model_id: str | None = None) -> dict:
             "normalize": True, "doc_prompt": "", "max_seq_length": MAX_SEQ_LENGTH, "dim": None,
             "chunker": chunking.CHUNKER_VERSION}
 
-
 def signature(spec: dict) -> str:
     return hashlib.sha256(json.dumps({k: spec.get(k) for k in SPEC_KEYS}, sort_keys=True).encode()).hexdigest()[:16]
-
 
 class Embedder:
     """sentence-transformers model, loaded lazily on first use. Loading and encoding are serialized by one
@@ -107,7 +102,6 @@ class Embedder:
             return self._load().encode([self.query_prompt + text], normalize_embeddings=True,
                                        convert_to_numpy=True, show_progress_bar=False)[0].astype(np.float32)
 
-
 class HashEmbedder:
     """Deterministic bag-of-words hashing embedder for tests (no model, no network)."""
     MODEL = "test/hash-embedder"
@@ -137,10 +131,8 @@ class HashEmbedder:
     def encode_query(self, text: str) -> np.ndarray:
         return self._vec(text)
 
-
 _cache: dict[str, object] = {}
 _cache_lock = threading.Lock()
-
 
 def for_spec(spec: dict):
     """One embedder instance per signature (search for an older collection keeps using its own model)."""

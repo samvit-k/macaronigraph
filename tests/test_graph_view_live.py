@@ -27,12 +27,10 @@ CREATE (x:Assertion {id:'a2', subject_key:'triton', object_key:'cuda', predicate
 CREATE (x)-[:SUBJECT]->(tri), (x)-[:OBJECT]->(cuda), (x)-[:EVIDENCE]->(p2)
 """
 
-
 @pytest.fixture
 def seeded(neo):
     neo.run(SEED)
     return neo
-
 
 def test_overview_shows_reels_bridge_concepts_mentions_and_non_rejected_assertions(seeded):
     o = view.overview(seeded)
@@ -45,11 +43,9 @@ def test_overview_shows_reels_bridge_concepts_mentions_and_non_rejected_assertio
     assert {(m["reel_id"], m["concept_key"]) for m in o["mentions"]} == {("R1", "cuda"), ("R2", "cuda"), ("R1", "gpu")}
     assert [a["id"] for a in o["assertions"]] == ["a1"] and o["assertions"][0]["status"] == "proposed"
 
-
 def test_overview_pages_reels(seeded):
     o = view.overview(seeded, reel_offset=1, reel_limit=1)
     assert [r["reel_id"] for r in o["reels"]] == ["R2"] and o["totals"]["reels_shown"] == 1
-
 
 def test_reel_neighborhood_has_all_its_concepts_with_excerpts(seeded):
     n = view.neighborhood(seeded, "reel", "R2")
@@ -57,7 +53,6 @@ def test_reel_neighborhood_has_all_its_concepts_with_excerpts(seeded):
     ev = next(c for c in n["concepts"] if c["key"] == "triton")["evidence"][0]
     assert ev["content_type"] == "ocr" and ev["text"] == "CUDA and Triton"
     assert n["assertions"] == []                                                     # the rejected one is hidden
-
 
 def test_concept_neighborhood_resolves_names_and_lists_reels(seeded):
     n = view.neighborhood(seeded, "concept", "cuda")
@@ -67,12 +62,10 @@ def test_concept_neighborhood_resolves_names_and_lists_reels(seeded):
     with pytest.raises(ValueError):
         view.neighborhood(seeded, "passage", "x")
 
-
 def test_search_ranks_exact_and_prefix_matches_and_finds_reels(seeded):
     s = view.search(seeded, "cu")
     assert s["concepts"][0]["key"] == "cuda" and {r["reel_id"] for r in s["reels"]} == {"R1"}
     assert view.search(seeded, "   ") == {"query": "", "concepts": [], "reels": []}
-
 
 def test_views_never_write(seeded):
     before = seeded.run("MATCH (n) RETURN count(n) AS n")[0]["n"]

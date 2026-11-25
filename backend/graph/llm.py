@@ -8,7 +8,6 @@ import time
 
 from .. import config, embedder
 
-
 class MlxLLM:
     def __init__(self, model_id: str | None = None):
         self.model_id = model_id or config.GRAPH_LLM

@@ -24,17 +24,14 @@ _wake = threading.Event()
 _stop = threading.Event()
 _thread: threading.Thread | None = None
 
-
 class AskError(RuntimeError):
     pass
-
 
 def _busy() -> str | None:
     try:
         return indexer.busy_reason()
     except Exception as e:  # noqa: BLE001
         return f"busy check failed: {e}"
-
 
 def ask(question: str, conversation_id: str | None = None, mode: str = "hybrid", options: dict | None = None,
         generate: bool = True, llm=None, graph=None) -> dict:
@@ -76,7 +73,6 @@ def ask(question: str, conversation_id: str | None = None, mode: str = "hybrid",
         conversations.update_turn(tid, status="retrieval_only")
     return response(conversations.get_turn(tid))
 
-
 def _previous_term(turns: list[dict]) -> str | None:
     """What 'this' refers to in a listing follow-up ("Which other Reels mention this?"): the previous deterministic
     listing's term, else the single concept the previous QUESTION named (never assistant text)."""
@@ -89,12 +85,10 @@ def _previous_term(turns: list[dict]) -> str | None:
     qc = prev.get("question_concepts") or []
     return qc[0]["name"] if len(qc) == 1 else None
 
-
 def _scope(rw: dict) -> dict:
     prev = rw.get("previous_cited_reels") or []
     return {"within": prev if rw.get("scope_previous") else None,
             "exclude": prev if rw.get("exclude_previous") else None, "previous_term": rw.get("previous_term")}
-
 
 def clarification(names: list[str]) -> dict:
     alts = ", ".join(f"“{n}”" for n in names[:-1]) + f" or “{names[-1]}”"
@@ -102,7 +96,6 @@ def clarification(names: list[str]) -> dict:
     return {"status": "clarify", "sentences": [], "removed": [], "missing": "", "conflict": False,
             "model_said_insufficient": False, "citations": [], "text": text, "clarify": names, "generated": False,
             "gate": None, "timing": {"generate_s": 0.0, "model_load_s": 0.0, "cold": False}}
-
 
 def _deterministic_turn(tid: int, retrieval: dict) -> bool:
     """Listing/count questions are answered without the model — so also while capture/processing is active —
@@ -119,7 +112,6 @@ def _deterministic_turn(tid: int, retrieval: dict) -> bool:
     conversations.update_turn(tid, status=out["status"], answer=out, retrieval=retrieval,
                               cited_reels=sorted({c["reel_id"] for c in out.get("citations", [])}), cited_concepts=[])
     return True
-
 
 def _generate_turn(tid: int, standalone: str, retrieval: dict, llm=None, defer_if_busy: bool = False,
                    timeout: float | None = None) -> bool:
@@ -157,7 +149,6 @@ def _generate_turn(tid: int, standalone: str, retrieval: dict, llm=None, defer_i
                               cited_concepts=list(concepts.values()))
     return True
 
-
 def _enqueue(tid: int, reason: str) -> None:
     with _qlock:
         if tid in _queue:
@@ -170,11 +161,9 @@ def _enqueue(tid: int, reason: str) -> None:
         conversations.update_turn(tid, status="queued", error=reason)
     _wake.set()
 
-
 def queued() -> list[int]:
     with _qlock:
         return list(_queue)
-
 
 def process_one(llm=None) -> int | None:
     """Generate the oldest queued answer if capture/processing are idle and the model is free.
@@ -198,7 +187,6 @@ def process_one(llm=None) -> int | None:
             _queue.popleft()
     return tid
 
-
 def _loop() -> None:
     while not _stop.is_set():
         _wake.wait(POLL_S)
@@ -218,7 +206,6 @@ def _loop() -> None:
                             pass
                 break
 
-
 def start() -> int:
     """Backend startup: expire queued turns of a previous process, start the generation worker."""
     global _thread
@@ -229,13 +216,11 @@ def start() -> int:
         _thread.start()
     return n
 
-
 def stop() -> None:
     _stop.set()
     _wake.set()
     if _thread is not None:
         _thread.join(timeout=60)
-
 
 # ---------------------------------------------------------------- response shape (API contract)
 
@@ -262,7 +247,6 @@ def response(t: dict) -> dict:
         "timing": {"retrieval": r.get("timing", {}), "rewrite_s": (t.get("rewrite") or {}).get("rewrite_s"),
                    "generation": (a or {}).get("timing")},
     }
-
 
 def request_status(tid: int) -> dict | None:
     t = conversations.get_turn(tid)

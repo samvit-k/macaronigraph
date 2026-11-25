@@ -79,14 +79,11 @@ DEFAULTS = {
     "near_duplicate": 0.8,        # token Jaccard above which two passages of one Reel are the same text
 }
 
-
 class RetrievalUnavailable(RuntimeError):
     pass
 
-
 class _GraphFailed(Exception):
     pass
-
 
 # ---------------------------------------------------------------- graph access (read-only)
 
@@ -138,7 +135,6 @@ class GraphReader:
                    collect(DISTINCT {reel_id: b.reel_id, chunk_id: bp.chunk_id, content_hash: br.content_hash,
                                      ready: br.retrieval_ready}) AS support""", keys=list(keys))
 
-
 # ---------------------------------------------------------------- helpers
 
 @dataclass
@@ -152,14 +148,11 @@ class Cand:
     text: str = ""
     listing: bool = False
 
-
 def _tokens(s: str) -> set[str]:
     return set(re.findall(r"[a-z0-9]+", s.lower()))
 
-
 def _words(s: str) -> list[str]:
     return re.findall(r"[\w][\w+#.\-']*[\w+#]|[\w]", s)
-
 
 def _link(text: str, index: dict) -> list[tuple[str, int, int]]:
     """(concept key, first word, end word) for concepts named in the text: exact canonical keys of 1-5 word
@@ -190,14 +183,12 @@ def _link(text: str, index: dict) -> list[tuple[str, int, int]]:
                 found.append((key, i, i + n))
     return found
 
-
 def link_concepts(question: str, index: dict) -> list[str]:
     out: list[str] = []
     for k, _, _ in sorted(_link(question, index), key=lambda x: x[1]):
         if k not in out:
             out.append(k)
     return out
-
 
 def listing_target(question: str, index: dict) -> list[str]:
     """Concept keys of an exhaustive listing question, or [] if the question is not purely a listing (e.g. it
@@ -216,18 +207,15 @@ def listing_target(question: str, index: dict) -> list[str]:
         return []
     return [k for k, _, _ in links]
 
-
 def specificity(df: int, n: int) -> float:
     if n <= 1 or df <= 0:
         return 1.0
     return max(0.0, math.log(n / df) / math.log(n))
 
-
 def _cos(q: np.ndarray, v) -> float:
     v = np.asarray(v, dtype=np.float32)
     d = float(np.linalg.norm(q) * np.linalg.norm(v)) or 1.0
     return float(np.dot(q, v) / d)
-
 
 # ---------------------------------------------------------------- retrieval
 
@@ -352,7 +340,6 @@ def retrieve(question: str, mode: str = "hybrid", options: dict | None = None, g
             "concepts": sorted(concepts_out.values(), key=lambda c: (not c["named_in_question"], -c["specificity"])),
             "connections": connections, "timing": {k: round(v, 4) for k, v in timing.items()}, "stats": stats,
             "params": p}
-
 
 def _graph_stage(question, mode, p, graph, col, state, exclude, cands, add, stats, boost):
     """All graph work. Any graph failure raises _GraphFailed (the caller restores the vector-only result)."""
@@ -499,7 +486,6 @@ def _graph_stage(question, mode, p, graph, col, state, exclude, cands, add, stat
     except Exception as e:  # noqa: BLE001 — Neo4j offline / query failure at any stage
         raise _GraphFailed(f"{type(e).__name__}: {e}") from e
 
-
 def _pack(ordered: list[Cand], p: dict, n_listed: int, protected: list[str], stats: dict) -> list[dict]:
     """Bounded context pack. Per-Reel cap; only near-identical text of the same Reel is de-duplicated (a caption
     and a transcript saying different things are both kept). Reserved slots AND their characters go to
@@ -559,7 +545,6 @@ def _pack(ordered: list[Cand], p: dict, n_listed: int, protected: list[str], sta
              "similarity": None if c.similarity is None else round(c.similarity, 4),
              "score": round(c.meta["fused"], 5), "channels": _merge_channels(c.channels)}
             for i, c in enumerate(chosen)]
-
 
 def _merge_channels(chs: list[dict]) -> list[dict]:
     out, seen = [], set()

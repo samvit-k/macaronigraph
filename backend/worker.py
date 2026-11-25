@@ -49,39 +49,31 @@ _stop = threading.Event()
 _thread: threading.Thread | None = None
 PostLookup = Callable[[str, str | None], dict | None]
 
-
 class UnsafeJobError(ValueError):
     pass
-
 
 class Overloaded(RuntimeError):
     pass
 
-
 def spool_dir() -> Path:
     return config.OUTPUT_DIR / "spool"
 
-
 def dead_dir() -> Path:
     return spool_dir() / ".dead"
-
 
 def _check(v, what: str) -> str:
     if not isinstance(v, str) or not _SAFE.fullmatch(v):
         raise UnsafeJobError(f"unsafe {what}: {v!r}")
     return v
 
-
 def pending_jobs() -> list[Path]:
     d = spool_dir()
     return sorted(p for p in d.iterdir() if p.is_dir() and not p.name.startswith(".")) if d.exists() else []
-
 
 def job_identity(job: Path) -> tuple[str, str]:
     """(session_id, reel_id) from meta.json. Raises if missing/corrupt/unsafe."""
     meta = json.loads((job / "meta.json").read_text())
     return _check(meta.get("session_id"), "session_id"), _check(meta.get("reel_id"), "reel_id")
-
 
 def _live_reel_ids() -> list[str]:
     ids = []
@@ -92,7 +84,6 @@ def _live_reel_ids() -> list[str]:
             continue
     return ids
 
-
 def find_job(session_id: str | None, reel_id: str | None) -> Path | None:
     for job in pending_jobs():
         try:
@@ -102,12 +93,10 @@ def find_job(session_id: str | None, reel_id: str | None) -> Path | None:
             continue
     return None
 
-
 def reconcile() -> int:
     """`queued` Reels with no live job → prior state. Serialized with publication. → Reels restored"""
     with _publish_lock:
         return jobs.restore_orphan_queued(_live_reel_ids())
-
 
 def _publish(tmp: Path, rid: str, sid: str) -> tuple[Path, dict | None]:
     """Mark the Reel `queued` and make the job visible, as one step w.r.t. reconcile()."""
@@ -120,7 +109,6 @@ def _publish(tmp: Path, rid: str, sid: str) -> tuple[Path, dict | None]:
             jobs.revert_queued(rid, snapshot)                   # exact undo; the session keeps its lease
             raise
     return final, snapshot
-
 
 def spool(cap: dict, audio_file, frames: list) -> Path:
     """Persist one capture as a job (see module docstring for the ordering guarantees)."""
@@ -144,16 +132,13 @@ def spool(cap: dict, audio_file, frames: list) -> Path:
     _wake.set()
     return final
 
-
 def _shift(segments: list[dict], lead: float) -> None:
     for s in segments:
         s["start"], s["end"] = round(max(0.0, s["start"] - lead), 2), round(max(0.0, s["end"] - lead), 2)
 
-
 def _missing_transcript(error: str) -> dict:
     return {"model": config.WHISPER_MODEL, "audio": None, "audio_class": "missing", "language": None, "text": "",
             "uncertain_text": "", "segments": [], "rejected_segments": [], "status": "error", "error": error}
-
 
 def build(job: Path, lookup: PostLookup) -> dict:
     """Extraction for one job → record (not persisted). Extraction errors become a `processing_error`
@@ -197,14 +182,12 @@ def build(job: Path, lookup: PostLookup) -> dict:
         ocr_result = None
     return record.build_record(post, cap, transcript, ocr_result)
 
-
 def _summary(rec: dict, out: dict) -> dict:
     t, o = rec.get("transcript") or {}, rec.get("ocr") or {}
     return {"reel_id": rec["reel_id"], "status": rec["status"], "errors": rec["errors"],
             "state": out["state"], "attempt_id": out["attempt_id"], "duplicate": out["duplicate"],
             "audio_class": t.get("audio_class"), "transcript_chars": len(t.get("text", "")),
             "ocr_segments": len(o.get("segments", []))}
-
 
 def _failures(job: Path) -> dict:
     """Failure bookkeeping. Corrupt bookkeeping counts as a failure (so it can still reach quarantine)
@@ -217,9 +200,7 @@ def _failures(job: Path) -> dict:
     except Exception as e:  # noqa: BLE001
         return {"count": 1, "last": 0.0, "errors": [f"corrupt failures.json: {type(e).__name__}"]}
 
-
 VALID_STATUSES = {"ok", "ok_no_speech", "partial", "failed"}
-
 
 def valid_checkpoint(job: Path) -> bool:
     """record.json parses into a recoverable extracted record with well-typed core fields (not merely:
@@ -239,7 +220,6 @@ def valid_checkpoint(job: Path) -> bool:
             and (rec.get("transcript") is None or isinstance(rec["transcript"], dict))
             and (rec.get("ocr") is None or isinstance(rec["ocr"], dict)))
 
-
 def _set_aside_corrupt_checkpoint(job: Path) -> bool:
     """A present-but-invalid record.json is kept as record.json.corrupt (evidence) so it is never reused."""
     p = job / "record.json"
@@ -247,7 +227,6 @@ def _set_aside_corrupt_checkpoint(job: Path) -> bool:
         p.rename(job / "record.json.corrupt")
         return True
     return False
-
 
 def _quarantine(job: Path, reason: str) -> Path:
     """Move a job to spool/.dead, apply the retention policy, and reconcile SQLite immediately.
@@ -270,7 +249,6 @@ def _quarantine(job: Path, reason: str) -> Path:
     except Exception:  # noqa: BLE001 — DB down: recover()/next quarantine reconciles later
         pass
     return target
-
 
 def process_job(job: Path, lookup: PostLookup) -> dict | None:
     """Build (or reuse the checkpointed) record, persist it, and only then delete the job.
@@ -295,11 +273,9 @@ def process_job(job: Path, lookup: PostLookup) -> dict | None:
     shutil.rmtree(job, ignore_errors=True)                # persisted → media can go
     return _summary(rec, out)
 
-
 def _due(job: Path) -> bool:
     f = _failures(job)
     return f["count"] == 0 or time.time() - f["last"] >= RETRY_BACKOFF_S
-
 
 def run_once(lookup: PostLookup) -> bool:
     """Process the oldest *due* job (jobs in back-off are skipped, never blocking others). Never raises."""
@@ -322,13 +298,11 @@ def run_once(lookup: PostLookup) -> bool:
         return True
     return False
 
-
 def drain(lookup: PostLookup, max_jobs: int | None = None) -> int:
     n = 0
     while (max_jobs is None or n < max_jobs) and run_once(lookup):
         n += 1
     return n
-
 
 def recover() -> dict:
     """Startup recovery after a crash/restart (call before accepting uploads). Idempotent."""
@@ -353,7 +327,6 @@ def recover() -> dict:
     return {"partial_uploads_removed": len(partial), "jobs_resumed": resumed,
             "already_committed_cleaned": committed, "quarantined": quarantined, "orphans_restored": reconcile()}
 
-
 def _loop(lookup: PostLookup) -> None:
     while not _stop.is_set():
         try:
@@ -364,7 +337,6 @@ def _loop(lookup: PostLookup) -> None:
             _wake.wait(timeout=2.0)
             _wake.clear()
 
-
 def start(lookup: PostLookup) -> dict:
     global _thread
     info = recover()
@@ -374,15 +346,12 @@ def start(lookup: PostLookup) -> dict:
         _thread.start()
     return info
 
-
 def stop() -> None:
     _stop.set()
     _wake.set()
 
-
 def alive() -> bool:
     return _thread is not None and _thread.is_alive()
-
 
 def ensure_capacity(timeout_s: float | None = None, poll_s: float = 1.0) -> int:
     """Wait while the backlog exceeds MAX_BACKLOG; if still excessive after `timeout_s`, refuse
@@ -394,7 +363,6 @@ def ensure_capacity(timeout_s: float | None = None, poll_s: float = 1.0) -> int:
             raise Overloaded(f"{n} jobs still queued after {timeout_s:.0f}s (max {MAX_BACKLOG})")
         time.sleep(poll_s)
     return n
-
 
 # ---------------------------------------------------------------- quarantine maintenance (explicit only)
 
@@ -409,7 +377,6 @@ def dead_jobs() -> list[dict]:
         out.append({"job": p.name, "has_media": any((p / m).exists() for m in MEDIA),
                     "has_record": (p / "record.json").exists(), **info})
     return out
-
 
 def retry_dead() -> int:
     """Move quarantined jobs that still have readable metadata back into the spool."""
@@ -429,7 +396,6 @@ def retry_dead() -> int:
     _wake.set()
     return n
 
-
 def purge_dead(older_than_days: float) -> int:
     """Explicitly delete quarantined media older than N days (keeps record.json + diagnostics)."""
     n, cutoff = 0, time.time() - older_than_days * 86400
@@ -441,7 +407,6 @@ def purge_dead(older_than_days: float) -> int:
                     shutil.rmtree(q, ignore_errors=True) if q.is_dir() else q.unlink(missing_ok=True)
                     n += 1
     return n
-
 
 if __name__ == "__main__":
     cmd, args = (sys.argv[1] if len(sys.argv) > 1 else "status"), sys.argv[2:]

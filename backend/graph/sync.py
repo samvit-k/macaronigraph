@@ -65,22 +65,16 @@ CREATE TABLE IF NOT EXISTS graph_review (
 """
 K_LAST = "graph.last_sync"
 
-
 class SyncBusy(RuntimeError):
     pass
-
-
-
 
 def ensure_schema() -> None:
     with jobs.connect() as con:
         con.executescript(SCHEMA)
 
-
 def extractor_version(model_id: str | None = None) -> str:
     model_id = model_id or config.GRAPH_LLM
     return ex.extractor_version(model_id, embedder.resolve_revision(model_id))
-
 
 def accepted_versions(llm=None) -> tuple[str, list[str]]:
     """→ (version new extractions are labelled with, [that version + compatible earlier versions whose
@@ -94,7 +88,6 @@ def accepted_versions(llm=None) -> tuple[str, list[str]]:
         compat = compatible_versions()
     return ev, [ev, *[v for v in compat if v != ev]]
 
-
 def compatible_versions(model_id: str | None = None) -> list[str]:
     model_id = model_id or config.GRAPH_LLM
     try:
@@ -102,15 +95,12 @@ def compatible_versions(model_id: str | None = None) -> list[str]:
     except Exception:  # noqa: BLE001 — model not available: nothing earlier can be vouched for
         return []
 
-
 def eligible() -> dict[str, dict]:
     return {r: e for r, e in indexer.eligible().items() if e["source"] in config.GRAPH_SOURCES}
-
 
 # ---------------------------------------------------------------- single-sync lock
 
 _sync_lock = threading.Lock()
-
 
 @contextmanager
 def exclusive():
@@ -136,7 +126,6 @@ def exclusive():
         if _requests:
             _wake.set()                       # a queued request was waiting for this sync to finish
 
-
 # ---------------------------------------------------------------- SQLite helpers
 
 def states() -> dict[str, dict]:
@@ -144,10 +133,8 @@ def states() -> dict[str, dict]:
     with jobs.connect() as con:
         return {r["reel_id"]: dict(r) for r in con.execute("SELECT * FROM graph_state")}
 
-
 _STATE_COLS = ["canonical_attempt_id", "content_hash", "extractor_version", "normalizer_version", "graph_hash",
                "chunk_ids", "status", "error"]
-
 
 def _upsert_state(con, rid: str, **f) -> None:
     con.execute(f"""INSERT INTO graph_state(reel_id, {', '.join(_STATE_COLS)}, synced_at)
@@ -156,11 +143,9 @@ def _upsert_state(con, rid: str, **f) -> None:
                     synced_at=excluded.synced_at""",
                 (rid, *[f.get(c) for c in _STATE_COLS], db.utc_now()))
 
-
 def _put_state(rid: str, **f) -> None:
     with jobs.tx() as con:
         _upsert_state(con, rid, **f)
-
 
 def _review_rows(con, chunk_ids: list[str]) -> list[dict]:
     if not chunk_ids:
@@ -169,12 +154,10 @@ def _review_rows(con, chunk_ids: list[str]) -> list[dict]:
         f"""SELECT {', '.join(REVIEW_FIELDS)} FROM graph_review WHERE chunk_id IN ({','.join('?' * len(chunk_ids))})
             ORDER BY subject, predicate, object, chunk_id""", chunk_ids)]
 
-
 def _digest_rows(rows: list[dict]) -> str:
     """Deterministic digest of review rows (same fields, same order everywhere)."""
     key = sorted((tuple(r[f] for f in REVIEW_FIELDS) for r in rows), key=lambda t: t[:4])
     return hashlib.sha256(json.dumps(key).encode()).hexdigest()
-
 
 def _commit_state_if_reviews_unchanged(rid: str, review_chunk_ids: list[str], digest: str, **f) -> bool:
     """Compare-and-set: record the synced state only if the Reel's reviews are what the written document used.
@@ -188,13 +171,11 @@ def _commit_state_if_reviews_unchanged(rid: str, review_chunk_ids: list[str], di
                                    "error": "a review changed during the sync; re-applied next sync"})
         return False
 
-
 def _set_status(rid: str, expected: str, status: str) -> bool:
     """Readiness transition only if the row is still what the sync saw (a concurrent review's stale marker wins)."""
     with jobs.tx() as con:
         return con.execute("""UPDATE graph_state SET status=?, synced_at=? WHERE reel_id=? AND status=?
                               AND graph_hash IS NOT NULL""", (status, db.utc_now(), rid, expected)).rowcount == 1
-
 
 def _mark_error(rid: str, prev: dict | None, msg: str) -> None:
     """Record an error WITHOUT touching what the graph holds: previous state fields are kept as they are."""
@@ -204,11 +185,9 @@ def _mark_error(rid: str, prev: dict | None, msg: str) -> None:
     else:
         _put_state(rid, status="error", error=msg)
 
-
 def _delete_state(rid: str) -> None:
     with jobs.tx() as con:
         con.execute("DELETE FROM graph_state WHERE reel_id=?", (rid,))
-
 
 def cached(rid: str, content_hash: str, ev: str) -> dict | None:
     ensure_schema()
@@ -216,7 +195,6 @@ def cached(rid: str, content_hash: str, ev: str) -> dict | None:
         r = con.execute("SELECT * FROM graph_extraction WHERE reel_id=? AND content_hash=? AND extractor_version=?",
                         (rid, content_hash, ev)).fetchone()
     return dict(r) if r else None
-
 
 def usable_cache(rid: str, content_hash: str, versions: list[str]) -> dict | None:
     """The successful cached proposal for this content, from the current version or a compatible earlier one
@@ -226,7 +204,6 @@ def usable_cache(rid: str, content_hash: str, versions: list[str]) -> dict | Non
         if c is not None and c["status"] == "ok":
             return c
     return None
-
 
 def _put_cache(rid: str, content_hash: str, ev: str, aid: int, status: str, raw=None, error=None, stats=None) -> None:
     with jobs.tx() as con:
@@ -239,14 +216,12 @@ def _put_cache(rid: str, content_hash: str, ev: str, aid: int, status: str, raw=
                     (rid, content_hash, ev, aid, status, json.dumps(raw) if raw is not None else None, error,
                      json.dumps(stats or {}), db.utc_now()))
 
-
 def reviews_for(chunk_ids: list[str]) -> tuple[dict[tuple, dict], str]:
     """ONE query → (reviews keyed by (subject, predicate, object, chunk_id), digest of exactly those rows)."""
     ensure_schema()
     with jobs.connect() as con:
         rows = _review_rows(con, chunk_ids)
     return {(r["subject"], r["predicate"], r["object"], r["chunk_id"]): r for r in rows}, _digest_rows(rows)
-
 
 def owner_of(chunk_id: str) -> str | None:
     """The Reel that owns a chunk: the graph_state row whose recorded chunk ids contain it; otherwise parsed
@@ -259,7 +234,6 @@ def owner_of(chunk_id: str) -> str | None:
                 return r["reel_id"]
     m = CHUNK_ID_RE.match(chunk_id)
     return m.group("reel") if m else None
-
 
 def put_review(subject: str, predicate: str, obj: str, chunk_id: str, decision: str, note: str | None) -> str:
     """Store a human decision and mark the owning Reel stale, in one transaction; the next sync re-applies it
@@ -277,7 +251,6 @@ def put_review(subject: str, predicate: str, obj: str, chunk_id: str, decision: 
                     (subject, predicate, obj, chunk_id, decision, note, db.utc_now()))
         con.execute("UPDATE graph_state SET graph_hash=NULL, status='stale' WHERE reel_id=?", (rid,))
     return rid
-
 
 # ---------------------------------------------------------------- documents
 
@@ -314,7 +287,6 @@ def build_doc(record: dict, source: str, prepared: dict, grounded: dict, ev: str
     doc["graph_hash"] = hashlib.sha256(json.dumps(doc, sort_keys=True, default=str).encode()).hexdigest()[:24]
     return doc
 
-
 def chroma_ready(chunk_ids: list[str], content_hash: str) -> bool:
     """Every chunk in the ACTIVE Chroma collection with the same content hash (read-only check). Any Chroma
     problem (no active index, unavailable) → False: the Reel waits, nothing is blocked."""
@@ -328,7 +300,6 @@ def chroma_ready(chunk_ids: list[str], content_hash: str) -> bool:
     except Exception:  # noqa: BLE001
         return False
 
-
 # ---------------------------------------------------------------- sync
 
 def sync(store=None, llm=None, allow_extract: bool = True, force: bool = False, should_continue=None,
@@ -336,7 +307,6 @@ def sync(store=None, llm=None, allow_extract: bool = True, force: bool = False, 
     """One graph synchronization (exclusive). Raises SyncBusy if another sync is running."""
     with exclusive():
         return _sync(store, llm, allow_extract, force, should_continue, only)
-
 
 def _sync(store, llm, allow_extract, force, should_continue, only) -> dict:
     t0 = time.time()
@@ -509,7 +479,6 @@ def _sync(store, llm, allow_extract, force, should_continue, only) -> dict:
     jobs.set_meta(K_LAST, json.dumps({"at": db.utc_now(), **st}))
     return st
 
-
 # ---------------------------------------------------------------- background thread (idle-gated)
 
 _thread: threading.Thread | None = None
@@ -519,7 +488,6 @@ _requests: list[dict] = []
 _request_log: dict[int, dict] = {}            # id → {status: queued|running|done|failed, ...}
 _ids = itertools.count(1)
 _state = {"running": False, "busy": None, "last_error": None}
-
 
 def _run(**kw) -> dict | None:
     """Run one sync. Raises SyncBusy (the caller decides whether to retry); other errors are recorded."""
@@ -537,10 +505,8 @@ def _run(**kw) -> dict | None:
     finally:
         _state["running"] = False
 
-
 def _idle() -> bool:
     return not _stop.is_set() and indexer.busy_reason() is None and not models.interactive_waiting()
-
 
 def _process_request(req: dict) -> None:
     rec = _request_log[req["id"]]
@@ -559,7 +525,6 @@ def _process_request(req: dict) -> None:
         return
     rec.update(status="done" if out is not None else "failed", result=out,
                reason=None if out is not None else _state["last_error"], at=db.utc_now())
-
 
 def _loop() -> None:
     while not _stop.is_set():
@@ -582,14 +547,12 @@ def _loop() -> None:
             except SyncBusy as e:
                 _state["busy"] = str(e)       # a manual sync is running; the next idle round catches up
 
-
 def start() -> None:
     global _thread
     _stop.clear()
     if _thread is None or not _thread.is_alive():
         _thread = threading.Thread(target=_loop, name="reel-graph", daemon=True)
         _thread.start()
-
 
 def stop() -> bool:
     _stop.set()
@@ -599,10 +562,8 @@ def stop() -> bool:
         return not _thread.is_alive()
     return True
 
-
 def request_status(request_id: int) -> dict | None:
     return _request_log.get(request_id)
-
 
 def request_sync(force: bool = False, wait: bool = False) -> dict:
     """Manual sync: always writes cached extractions; new LLM extraction during capture only with force.

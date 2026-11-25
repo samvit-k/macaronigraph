@@ -17,10 +17,8 @@ NODES = [{"eid": "1", "labels": ["Reel"], "props": {"reel_id": "R1", "content_ha
 RELS = [{"type": "HAS_PASSAGE", "a": "1", "b": "2", "props": {}},
         {"type": "MENTIONS", "a": "2", "b": "3", "props": {"surface": "CUDA"}}]
 
-
 def fake_query(nodes=NODES, rels=RELS):
     return lambda q: [dict(r) for r in (nodes if q == dd.NODES_Q else rels)]
-
 
 @pytest.fixture
 def prod(tmp_path):
@@ -38,10 +36,8 @@ def prod(tmp_path):
         (out / "chroma" / "seg-1" / f).write_bytes(b"\x01\x02" + f.encode())
     return out
 
-
 def take(out, query=None):
     return dd.digest(out, query=query or fake_query())
-
 
 def test_identical_digests(prod):
     a, b = take(prod), take(prod)
@@ -49,13 +45,11 @@ def test_identical_digests(prod):
     assert set(a["chroma"]["segments"]["seg-1"]) == {"data_level0.bin", "header.bin", "length.bin",
                                                        "link_lists.bin", "index_metadata.pickle"}
 
-
 def test_changed_canonical_record_is_detected(prod):
     a = take(prod)
     con = sqlite3.connect(prod / "pipeline.db"); con.execute("UPDATE reels SET status='partial'"); con.commit(); con.close()
     verdict, diff = dd.compare(a, take(prod))
     assert verdict == "DIFFERENT" and any(d.startswith("canonical.reels.sha256") for d in diff)
-
 
 def test_changed_chroma_vector_and_modified_hnsw_file_are_detected(prod):
     a = take(prod)
@@ -68,7 +62,6 @@ def test_changed_chroma_vector_and_modified_hnsw_file_are_detected(prod):
     verdict, diff = dd.compare(b, take(prod))
     assert verdict == "DIFFERENT" and any("segments.seg-1.link_lists.bin" in d for d in diff)
 
-
 def test_changed_relationship_endpoint_or_property_is_detected(prod):
     a = take(prod)
     moved = [RELS[0], {**RELS[1], "b": "4"}]                     # MENTIONS now points at Triton instead of CUDA
@@ -77,12 +70,10 @@ def test_changed_relationship_endpoint_or_property_is_detected(prod):
     prop = [RELS[0], {**RELS[1], "props": {"surface": "Cuda"}}]
     assert dd.compare(a, take(prod, fake_query(rels=prop)))[0] == "DIFFERENT"
 
-
 def test_endpoint_identity_ignores_internal_element_ids(prod):
     renumbered = [{**n, "eid": "x" + n["eid"]} for n in NODES]
     rels = [{**r, "a": "x" + r["a"], "b": "x" + r["b"]} for r in RELS]
     assert dd.compare(take(prod), take(prod, fake_query(renumbered, rels)))[0] == "IDENTICAL"
-
 
 @pytest.mark.parametrize("nodes,why", [
     (NODES + [{"eid": "9", "labels": ["Mystery"], "props": {}}], "0 canonical ids"),
@@ -92,12 +83,10 @@ def test_unidentifiable_or_ambiguous_nodes_fail_closed(prod, nodes, why):
     d = take(prod, fake_query(nodes=nodes))
     assert not d["complete"] and why in d["errors"]["neo4j"]
 
-
 def test_unavailable_sources_make_the_digest_incomplete(prod):
     (prod / "chroma" / "chroma.sqlite3").unlink()
     d = dd.digest(prod)                                           # also: no Neo4j password in tests
     assert not d["complete"] and set(d["errors"]) == {"chroma", "neo4j"}
-
 
 def test_matching_error_responses_are_never_identical(prod):
     (prod / "pipeline.db").unlink()
@@ -105,7 +94,6 @@ def test_matching_error_responses_are_never_identical(prod):
     assert a["errors"] == b["errors"] and a["canonical"] is None
     verdict, problems = dd.compare(a, b)
     assert verdict == "INCOMPLETE" and dd.EXIT[verdict] == 2
-
 
 def test_compare_cli_exit_codes(prod, tmp_path):
     a, b = tmp_path / "a.json", tmp_path / "b.json"
@@ -115,12 +103,10 @@ def test_compare_cli_exit_codes(prod, tmp_path):
     b.write_text(json.dumps(bad))
     assert dd.main(["--compare", str(a), str(b)]) == 2
 
-
 def test_failed_verification_is_incomplete(prod):
     a, b = take(prod), take(prod)
     b["verify"] = {"graph_verify": {"ok": False}}
     assert dd.compare(a, b)[0] == "INCOMPLETE"
-
 
 def test_busy_detection_is_read_only_and_does_not_create_lock_files(prod):
     assert dd.busy(prod) == [] and not (prod / ".heavy-work.lock").exists()
@@ -128,7 +114,6 @@ def test_busy_detection_is_read_only_and_does_not_create_lock_files(prod):
     con = sqlite3.connect(prod / "pipeline.db"); con.execute("INSERT INTO sessions VALUES(1, NULL, 9e12, 0)"); con.commit(); con.close()
     reasons = dd.busy(prod, now=9e12)
     assert any("spool" in r for r in reasons) and any("capture" in r for r in reasons)
-
 
 def test_held_heavy_lock_is_reported_busy(prod):
     import fcntl, os
@@ -141,13 +126,11 @@ def test_held_heavy_lock_is_reported_busy(prod):
         fcntl.flock(fd, fcntl.LOCK_UN); os.close(fd)
     assert dd.busy(prod) == []
 
-
 def test_main_refuses_when_busy_without_interrupting(prod, monkeypatch, capsys):
     monkeypatch.setattr(config, "OUTPUT_DIR", prod)
     (prod / "spool").mkdir(); (prod / "spool" / "job-1").mkdir()
     assert dd.main([]) == 3 and "BUSY" in capsys.readouterr().out
     assert (prod / "spool" / "job-1").exists()
-
 
 def test_chroma_lock_log_rows_are_reported_but_not_a_difference(prod):
     con = sqlite3.connect(prod / "chroma" / "chroma.sqlite3")
@@ -156,7 +139,6 @@ def test_chroma_lock_log_rows_are_reported_but_not_a_difference(prod):
     con.execute("INSERT INTO acquire_write(lock_status) VALUES(1)"); con.commit(); con.close()
     verdict, notes = dd.compare(a, take(prod))
     assert verdict == "IDENTICAL" and any("bookkeeping" in n and "rows" in n for n in notes)
-
 
 def test_bookkeeping_table_with_another_schema_fails_closed(prod):
     con = sqlite3.connect(prod / "chroma" / "chroma.sqlite3")
