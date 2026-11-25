@@ -1,0 +1,181 @@
+{
+  "TESTCLIP01": {
+    "audio_class": "speech",
+    "script": "Today we are learning how vector databases work. An embedding turns text into a list of numbers, and similar ideas end up close together, so search can find meaning instead of keywords.",
+    "cards": [
+      {
+        "text": "VECTOR DATABASES",
+        "start": 0.2,
+        "end": 3.94
+      },
+      {
+        "text": "EMBEDDINGS ARE NUMBERS",
+        "start": 4.34,
+        "end": 8.07
+      },
+      {
+        "text": "SEARCH BY MEANING",
+        "start": 8.47,
+        "end": 12.21
+      }
+    ],
+    "duration": 12.41,
+    "speech_end": 11.41
+  },
+  "TESTCLIP02": {
+    "audio_class": "speech",
+    "script": "Here is a quick tip for better sleep. Keep your bedroom cool and dark, stop using screens an hour before bed, and wake up at the same time every single day.",
+    "cards": [
+      {
+        "text": "BETTER SLEEP",
+        "start": 0.2,
+        "end": 3.53
+      },
+      {
+        "text": "COOL AND DARK ROOM",
+        "start": 3.93,
+        "end": 7.26
+      },
+      {
+        "text": "SAME WAKE TIME",
+        "start": 7.66,
+        "end": 10.99
+      }
+    ],
+    "duration": 11.19,
+    "speech_end": 10.19
+  },
+  "TESTCLIP03": {
+    "audio_class": "speech",
+    "script": "Let me explain compound interest. When you invest money, you earn returns on your returns, so starting early matters far more than the amount you begin with.",
+    "cards": [
+      {
+        "text": "COMPOUND INTEREST",
+        "start": 0.2,
+        "end": 3.31
+      },
+      {
+        "text": "RETURNS ON RETURNS",
+        "start": 3.71,
+        "end": 6.81
+      },
+      {
+        "text": "START EARLY",
+        "start": 7.21,
+        "end": 10.32
+      },
+      {
+        "text": "FLASH CARD",
+        "start": 5.26,
+        "end": 5.86
+      }
+    ],
+    "duration": 10.52,
+    "speech_end": 9.52
+  },
+  "TESTSUBS": {
+    "audio_class": "speech",
+    "script": "Caching stores the result of an expensive computation so the next request can reuse it. Always set an expiry time or stale data will quietly break your app.",
+    "duration": 10.36,
+    "speech_end": 9.36,
+    "cards": [
+      {
+        "text": "CACHING IN 20 SECONDS",
+        "start": 0.0,
+        "end": 10.36
+      }
+    ],
+    "subtitles": [
+      {
+        "text": "CACHING STORES THE",
+        "start": 0.0,
+        "end": 0.98
+      },
+      {
+        "text": "RESULT OF AN",
+        "start": 1.0,
+        "end": 1.99
+      },
+      {
+        "text": "EXPENSIVE COMPUTATION SO",
+        "start": 2.01,
+        "end": 2.99
+      },
+      {
+        "text": "THE NEXT REQUEST",
+        "start": 3.01,
+        "end": 3.99
+      },
+      {
+        "text": "CAN REUSE IT",
+        "start": 4.01,
+        "end": 4.99
+      },
+      {
+        "text": "ALWAYS SET AN",
+        "start": 5.01,
+        "end": 6.0
+      },
+      {
+        "text": "EXPIRY TIME OR",
+        "start": 6.02,
+        "end": 7.0
+      },
+      {
+        "text": "STALE DATA WILL",
+        "start": 7.02,
+        "end": 8.0
+      },
+      {
+        "text": "QUIETLY BREAK YOUR",
+        "start": 8.02,
+        "end": 9.01
+      },
+      {
+        "text": "APP",
+        "start": 9.03,
+        "end": 9.34
+      }
+    ]
+  },
+  "TESTSILENT": {
+    "audio_class": "silent",
+    "script": "",
+    "cards": [
+      {
+        "text": "NO AUDIO HERE",
+        "start": 0.2,
+        "end": 3.8
+      },
+      {
+        "text": "SILENT CLIP",
+        "start": 4.2,
+        "end": 7.8
+      }
+    ],
+    "duration": 8.0
+  },
+  "TESTMUSIC": {
+    "audio_class": "non_speech",
+    "script": "",
+    "cards": [
+      {
+        "text": "MUSIC ONLY",
+        "start": 0.2,
+        "end": 4.8
+      },
+      {
+        "text": "NO WORDS SPOKEN",
+        "start": 5.2,
+        "end": 9.8
+      }
+    ],
+    "duration": 10.0
+  },
+  "TESTMISSING": {
+    "audio_class": null,
+    "expect_status": "failed",
+    "script": "",
+    "cards": []
+  }
+}
