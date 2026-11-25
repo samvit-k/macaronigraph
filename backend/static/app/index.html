@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ask your saved Reels</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <aside id="sidebar">
+    <button id="new-chat" type="button">+ New conversation</button>
+    <ul id="conversation-list" aria-label="Conversations"></ul>
+  </aside>
+  <main>
+    <header>
+      <h1>Ask your saved Reels</h1>
+      <p class="hint">Answers come only from your saved Reels, run locally. Every claim cites its Reel.</p>
+    </header>
+    <section id="thread" aria-live="polite"></section>
+    <form id="ask-form">
+      <textarea id="question" rows="2" placeholder="Ask about your saved Reels…" required></textarea>
+      <div class="controls">
+        <label>Retrieval
+          <select id="mode">
+            <option value="hybrid">Hybrid (semantic + graph)</option>
+            <option value="vector">Semantic only</option>
+            <option value="graph">Graph only</option>
+          </select>
+        </label>
+        <label><input type="checkbox" id="co-mention" checked> Shared-concept expansion</label>
+        <label><input type="checkbox" id="generate" checked> Generate answer</label>
+        <button type="submit" id="ask-button">Ask</button>
+      </div>
+    </form>
+  </main>
+  <script type="module" src="chat.js"></script>
+</body>
+</html>
