@@ -1,0 +1,10 @@
+{
+ "about": "Phase 4C answer-generation configuration, selected on the DEV sets only (v2 dev + v1 dev) from experiments E0-E6 (reports/phase4c/experiments, manual judgments in reports/phase4c/manual_judgments_v2dev.json) and frozen before any held-out run. backend/answer.py DEFAULTS and backend/conversations.py DEFAULTS must equal these values (tests/test_answer_config.py).",
+ "selected": "E4c",
+ "answer": {"prompt": "v2", "inline_citations": true, "sufficiency": "hard_sim_anchor", "tau_sim": 0.55, "tau_cov": 0.5,
+            "min_source_words": 3, "absence_statements": "to_missing"},
+ "rewrite": {"referents": "v2"},
+ "model": "mlx-community/Qwen3-4B-Instruct-2507-4bit",
+ "max_tokens_unchanged": true,
+ "temperature": 0.0
+}

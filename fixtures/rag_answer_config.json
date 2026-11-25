@@ -1,0 +1,29 @@
+{
+ "about": "Phase 4D answer-generation configuration (D6), selected on the v2 dev set, the v1 dev set and the v2 held-out set (which after Phase 4C is DIAGNOSTIC data, not a final benchmark), from experiments D0-D6v (reports/phase4d/experiments; self-assessed blind judgments in reports/phase4d/blind_judgments.json) and frozen BEFORE the v3 held-out run. Claim verification is implemented but OFF (no net benefit measured; +~3 s). The Phase 4C configuration is kept in rag_answer_config_phase4c.json. backend/answer.py DEFAULTS and backend/conversations.py DEFAULTS must equal these values (tests/test_answer_config.py).",
+ "selected": "D6",
+ "previous": "E4c (rag_answer_config_phase4c.json)",
+ "answer": {
+  "prompt": "v2",
+  "inline_citations": true,
+  "sufficiency": "hard_sim_anchor",
+  "tau_sim": 0.55,
+  "tau_cov": 0.5,
+  "min_source_words": 3,
+  "absence_statements": "to_missing",
+  "absence_clause": true,
+  "scoped_follow_up": true,
+  "listing": true,
+  "passage_select": true,
+  "verify": "off",
+  "coverage": false
+ },
+ "rewrite": {
+  "referents": "v2",
+  "clarify": true
+ },
+ "passage_select_options": "backend/evidence.py DEFAULTS (unchanged from the first measurement; not tuned)",
+ "model": "mlx-community/Qwen3-4B-Instruct-2507-4bit",
+ "max_tokens_unchanged": true,
+ "temperature": 0.0,
+ "max_model_calls_per_answer": 1
+}
