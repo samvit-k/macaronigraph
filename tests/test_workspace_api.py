@@ -52,8 +52,8 @@ def test_welcome_and_workspace_are_served_when_built():
     assert client.get("/workspace", follow_redirects=False).status_code in (307, 302)
 
 
-def test_legacy_app_and_worker_tab_still_work():
-    assert client.get("/app/").status_code == 200
+def test_legacy_app_redirects_and_worker_tab_still_works():
+    assert client.get("/app/", follow_redirects=False).headers["location"] == "/workspace/"
     r = client.get("/")
     assert r.status_code == 200 and "worker tab" in r.text
 

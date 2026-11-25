@@ -213,9 +213,3 @@ def curated_surfaces(display: str) -> list[str]:
     """Literal spellings (canonical name + aliases, as written in aliases.json) of a curated concept, for exact
     text matching. ASR aliases are excluded: they apply only with the model's agreement."""
     return list(_alias_table()["literal"].get(display, []))
-
-
-def surface_forms(display: str) -> list[str]:
-    """Curated surface keys of a canonical concept (for deterministic mention matching)."""
-    alias = _alias_table()["alias"]
-    return sorted({a for a, c in alias.items() if c == display} | {base_key(display)})

@@ -396,7 +396,10 @@ def conversation_delete(conversation_id: str):
     return {"deleted": conversation_id}
 
 
-app.mount("/app", StaticFiles(directory=str(Path(__file__).with_name("static") / "app"), html=True), name="app")
+@app.get("/app")
+@app.get("/app/{path:path}")
+def legacy_app_redirect(path: str = ""):
+    return RedirectResponse("/workspace/")
 
 
 # ---------- Phase 5: MacaroniGraph workspace + local welcome page ----------
@@ -407,7 +410,7 @@ EXTENSION_DIR = Path(__file__).resolve().parent.parent / "extension"
 # alternate manifests, dotfiles or development artefacts — can ever end up in the download.
 EXTENSION_FILES = (
     "manifest.json", "background.js", "content.js", "crop.js", "offscreen.html", "offscreen.js",
-    "ui-next/popup.html", "ui-next/popup.css", "ui-next/popup.js", "ui-next/logo.svg", "ui-next/logo-16.svg",
+    "ui-next/popup.html", "ui-next/popup.css", "ui-next/popup.js", "ui-next/logo.svg",
     "ui-next/icons/icon16.png", "ui-next/icons/icon32.png", "ui-next/icons/icon48.png", "ui-next/icons/icon128.png",
 )
 

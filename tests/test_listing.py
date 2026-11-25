@@ -2,7 +2,6 @@
 mention matching with aliases, deduplication per Reel, evidence types (spoken/caption vs on-screen text), citation
 provenance, previous-Reel scoping, content-hash validation, dynamic corpus size, and the /api/ask integration
 (answered without the model, also while capture is active)."""
-import json
 
 import pytest
 

@@ -96,10 +96,10 @@ def test_no_index_is_503(monkeypatch):
     assert client.post("/api/ask", json={"question": "CUDA?"}).status_code == 503
 
 
-def test_app_page_is_served():
-    r = client.get("/app/")
-    assert r.status_code == 200 and "Ask your saved Reels" in r.text
-    assert client.get("/app/chat.js").status_code == 200 and client.get("/app/render.js").status_code == 200
+def test_legacy_app_urls_redirect_to_the_workspace():
+    for path in ("/app", "/app/", "/app/chat.js"):
+        r = client.get(path, follow_redirects=False)
+        assert r.status_code == 307 and r.headers["location"] == "/workspace/"
 
 
 def test_conversation_endpoints_roundtrip(env):

@@ -2,7 +2,7 @@
 import pytest
 
 from backend import answer, sufficiency as sf
-from test_answer import PACK, ask, src
+from test_answer import ask, src
 
 
 @pytest.fixture(autouse=True)

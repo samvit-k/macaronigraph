@@ -45,7 +45,6 @@ const q = (params) => new URLSearchParams(Object.entries(params).filter(([, v]) 
 export const api = {
   health: () => request('/api/health', { timeout: 8000 }),
   status: () => request('/api/status', { timeout: 8000 }),
-  indexStatus: () => request('/api/index/status', { timeout: 8000 }),
   graphStatus: () => request('/api/graph/status', { timeout: 8000 }),
   overview: (opts = {}) => request(`/api/graph/overview?${q(opts)}`),
   neighborhood: (kind, id) => request(`/api/graph/neighborhood?${q({ kind, id })}`),

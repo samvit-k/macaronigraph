@@ -22,7 +22,6 @@ import re
 from . import indexer, jobs
 
 _VERB = r"(?:mention|mentions|mentioned|name|names|named|reference|references|referenced)"
-_REELS = r"(?:my\s+)?(?:saved\s+)?(?:other\s+)?(?:reels?|videos?)"
 _PATTERNS = [
     ("count", re.compile(r"^\s*how many\s+(?:of\s+)?(?:my\s+)?(?:saved\s+)?(?P<other>other\s+)?(?:reels?|videos?)\s+"
                          r"(?:also\s+)?(?:do\s+)?" + _VERB + r"\s+(?P<tail>.+?)\s*\??\s*$", re.I)),
