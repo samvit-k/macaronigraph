@@ -39,9 +39,8 @@ import sys
 import threading
 import time
 from contextlib import contextmanager
-from datetime import datetime, timezone
 
-from .. import chunking, config, embedder, indexer, jobs, models
+from .. import chunking, config, db, embedder, indexer, jobs, models
 from . import extract as ex
 from . import normalize as nz
 from .store import GraphOffline, Neo4jStore
@@ -71,8 +70,6 @@ class SyncBusy(RuntimeError):
     pass
 
 
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def ensure_schema() -> None:
@@ -157,7 +154,7 @@ def _upsert_state(con, rid: str, **f) -> None:
                     VALUES(?, {', '.join('?' * len(_STATE_COLS))}, ?)
                     ON CONFLICT(reel_id) DO UPDATE SET {', '.join(f'{c}=excluded.{c}' for c in _STATE_COLS)},
                     synced_at=excluded.synced_at""",
-                (rid, *[f.get(c) for c in _STATE_COLS], _now()))
+                (rid, *[f.get(c) for c in _STATE_COLS], db.utc_now()))
 
 
 def _put_state(rid: str, **f) -> None:
@@ -196,14 +193,14 @@ def _set_status(rid: str, expected: str, status: str) -> bool:
     """Readiness transition only if the row is still what the sync saw (a concurrent review's stale marker wins)."""
     with jobs.tx() as con:
         return con.execute("""UPDATE graph_state SET status=?, synced_at=? WHERE reel_id=? AND status=?
-                              AND graph_hash IS NOT NULL""", (status, _now(), rid, expected)).rowcount == 1
+                              AND graph_hash IS NOT NULL""", (status, db.utc_now(), rid, expected)).rowcount == 1
 
 
 def _mark_error(rid: str, prev: dict | None, msg: str) -> None:
     """Record an error WITHOUT touching what the graph holds: previous state fields are kept as they are."""
     if prev:
         with jobs.tx() as con:
-            con.execute("UPDATE graph_state SET status='error', error=?, synced_at=? WHERE reel_id=?", (msg, _now(), rid))
+            con.execute("UPDATE graph_state SET status='error', error=?, synced_at=? WHERE reel_id=?", (msg, db.utc_now(), rid))
     else:
         _put_state(rid, status="error", error=msg)
 
@@ -240,7 +237,7 @@ def _put_cache(rid: str, content_hash: str, ev: str, aid: int, status: str, raw=
                          canonical_attempt_id=excluded.canonical_attempt_id, created_at=excluded.created_at,
                          attempts=graph_extraction.attempts + 1""",
                     (rid, content_hash, ev, aid, status, json.dumps(raw) if raw is not None else None, error,
-                     json.dumps(stats or {}), _now()))
+                     json.dumps(stats or {}), db.utc_now()))
 
 
 def reviews_for(chunk_ids: list[str]) -> tuple[dict[tuple, dict], str]:
@@ -277,7 +274,7 @@ def put_review(subject: str, predicate: str, obj: str, chunk_id: str, decision: 
         con.execute("""INSERT INTO graph_review(subject, predicate, object, chunk_id, decision, note, reviewed_at)
                        VALUES(?,?,?,?,?,?,?) ON CONFLICT(subject, predicate, object, chunk_id) DO UPDATE SET
                        decision=excluded.decision, note=excluded.note, reviewed_at=excluded.reviewed_at""",
-                    (subject, predicate, obj, chunk_id, decision, note, _now()))
+                    (subject, predicate, obj, chunk_id, decision, note, db.utc_now()))
         con.execute("UPDATE graph_state SET graph_hash=NULL, status='stale' WHERE reel_id=?", (rid,))
     return rid
 
@@ -509,7 +506,7 @@ def _sync(store, llm, allow_extract, force, should_continue, only) -> dict:
             llm.unload()
     st["timing"] = {k: round(v, 2) for k, v in tm.items()}
     st["duration_s"] = round(time.time() - t0, 2)
-    jobs.set_meta(K_LAST, json.dumps({"at": _now(), **st}))
+    jobs.set_meta(K_LAST, json.dumps({"at": db.utc_now(), **st}))
     return st
 
 
@@ -547,7 +544,7 @@ def _idle() -> bool:
 
 def _process_request(req: dict) -> None:
     rec = _request_log[req["id"]]
-    rec.update(status="running", started_at=_now())
+    rec.update(status="running", started_at=db.utc_now())
     busy = indexer.busy_reason()
     try:
         out = _run(allow_extract=req["force"] or busy is None, force=req["force"],
@@ -555,13 +552,13 @@ def _process_request(req: dict) -> None:
     except SyncBusy as e:
         req["busy_retries"] += 1
         if req["busy_retries"] >= MAX_BUSY_RETRIES:
-            rec.update(status="failed", reason=f"{e} ({req['busy_retries']} attempts)", at=_now())
+            rec.update(status="failed", reason=f"{e} ({req['busy_retries']} attempts)", at=db.utc_now())
         else:
             rec.update(status="queued", reason=str(e))
             _requests.insert(0, req)          # retried when the running sync finishes (it wakes the loop)
         return
     rec.update(status="done" if out is not None else "failed", result=out,
-               reason=None if out is not None else _state["last_error"], at=_now())
+               reason=None if out is not None else _state["last_error"], at=db.utc_now())
 
 
 def _loop() -> None:
@@ -617,7 +614,7 @@ def request_sync(force: bool = False, wait: bool = False) -> dict:
         except SyncBusy as e:
             return {"busy": True, "reason": str(e)}
     rid = next(_ids)
-    _request_log[rid] = {"id": rid, "status": "queued", "force": force, "queued_at": _now()}
+    _request_log[rid] = {"id": rid, "status": "queued", "force": force, "queued_at": db.utc_now()}
     _requests.append({"id": rid, "force": force, "busy_retries": 0})
     _wake.set()
     return {"accepted": True, "request_id": rid, "queued_requests": len(_requests)}

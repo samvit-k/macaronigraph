@@ -45,51 +45,62 @@ def candidates(store: Neo4jStore, threshold: float = 0.9) -> list[dict]:
     return sorted(out, key=lambda x: -x["similarity"])
 
 
+def _sync(store, args):
+    force = "--force" in args
+    from .. import indexer
+    busy = indexer.busy_reason()
+    if busy and not force:
+        print(f"note: {busy} — cached extractions are written, new LLM extraction is deferred (use --force)",
+              file=sys.stderr)
+    _print(gs.sync(store=store, allow_extract=force or busy is None, force=force))
+
+
+def _verify(store, args):
+    v = q.verify(store)
+    _print(v)
+    return 0 if v["ok"] else 1
+
+
+def _review(store, args):
+    a = store.run("MATCH (a:Assertion {id: $id}) RETURN a.subject_key AS s, a.predicate AS p, "
+                  "a.object_key AS o, a.chunk_id AS c", id=args[0])
+    if not a:
+        print(f"no assertion {args[0]!r}", file=sys.stderr)
+        return 1
+    a = a[0]
+    rid = gs.put_review(a["s"], a["p"], a["o"], a["c"], args[1], " ".join(args[2:]) or None)
+    try:
+        _print({"review": args[1], "reel_id": rid, "applied": gs.sync(store=store, only=[rid], allow_extract=False)})
+    except gs.SyncBusy as e:
+        _print({"review": args[1], "reel_id": rid, "applied": False, "note": f"{e}; applied on the next sync"})
+
+
+# command -> (argument check, handler(store, args) -> exit code or None)
+COMMANDS = {
+    "status": (lambda a: True, lambda s, a: _print(q.status(s))),
+    "sync": (lambda a: True, _sync),
+    "verify": (lambda a: True, _verify),
+    "reel": (lambda a: len(a) >= 1, lambda s, a: _print(q.reel_concepts(s, a[0]))),
+    "concept": (lambda a: len(a) >= 1, lambda s, a: _print(q.concept_reels(s, " ".join(a)))),
+    "shared": (lambda a: True, lambda s, a: _print(q.shared(s, int(a[0]) if a else 2))),
+    "between": (lambda a: len(a) >= 2,
+                lambda s, a: _print(q.between(s, a[0], a[1], include_rejected="--include-rejected" in a))),
+    "evidence": (lambda a: len(a) >= 2,
+                 lambda s, a: _print(q.evidence(s, a[0], a[1], include_rejected="--include-rejected" in a))),
+    "review": (lambda a: len(a) >= 2 and a[1] in ("accept", "reject"), _review),
+    "candidates": (lambda a: True, lambda s, a: _print(candidates(s, float(a[0]) if a else 0.9))),
+}
+
+
 def main(argv: list[str]) -> int:
     cmd, args = (argv[1] if len(argv) > 1 else "status"), argv[2:]
     store = Neo4jStore()
     try:
-        if cmd == "status":
-            _print(q.status(store))
-        elif cmd == "sync":
-            force = "--force" in args
-            from .. import indexer
-            busy = indexer.busy_reason()
-            if busy and not force:
-                print(f"note: {busy} — cached extractions are written, new LLM extraction is deferred (use --force)",
-                      file=sys.stderr)
-            _print(gs.sync(store=store, allow_extract=force or busy is None, force=force))
-        elif cmd == "verify":
-            v = q.verify(store)
-            _print(v)
-            return 0 if v["ok"] else 1
-        elif cmd == "reel" and args:
-            _print(q.reel_concepts(store, args[0]))
-        elif cmd == "concept" and args:
-            _print(q.concept_reels(store, " ".join(args)))
-        elif cmd == "shared":
-            _print(q.shared(store, int(args[0]) if args else 2))
-        elif cmd == "between" and len(args) >= 2:
-            _print(q.between(store, args[0], args[1], include_rejected="--include-rejected" in args))
-        elif cmd == "evidence" and len(args) >= 2:
-            _print(q.evidence(store, args[0], args[1], include_rejected="--include-rejected" in args))
-        elif cmd == "review" and len(args) >= 2 and args[1] in ("accept", "reject"):
-            a = store.run("MATCH (a:Assertion {id: $id}) RETURN a.subject_key AS s, a.predicate AS p, "
-                          "a.object_key AS o, a.chunk_id AS c", id=args[0])
-            if not a:
-                print(f"no assertion {args[0]!r}", file=sys.stderr)
-                return 1
-            a = a[0]
-            rid = gs.put_review(a["s"], a["p"], a["o"], a["c"], args[1], " ".join(args[2:]) or None)
-            try:
-                _print({"review": args[1], "reel_id": rid, "applied": gs.sync(store=store, only=[rid], allow_extract=False)})
-            except gs.SyncBusy as e:
-                _print({"review": args[1], "reel_id": rid, "applied": False, "note": f"{e}; applied on the next sync"})
-        elif cmd == "candidates":
-            _print(candidates(store, float(args[0]) if args else 0.9))
-        else:
+        valid, handler = COMMANDS.get(cmd, (lambda a: False, None))
+        if not valid(args):
             print(__doc__)
             return 2
+        return handler(store, args) or 0
     except GraphOffline as e:
         print(f"graph offline: {e}", file=sys.stderr)
         return 3
@@ -98,7 +109,6 @@ def main(argv: list[str]) -> int:
         return 4
     finally:
         store.close()
-    return 0
 
 
 if __name__ == "__main__":

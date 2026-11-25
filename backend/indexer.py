@@ -32,9 +32,9 @@ import time
 import uuid
 from collections import Counter
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime
 
-from . import chunking, config, embedder, jobs, worker
+from . import chunking, config, db, embedder, jobs, worker
 
 ELIGIBLE = ("ok", "ok_no_speech", "partial")
 EMBED_BATCH_CHUNKS = 64       # chunks embedded per model call (spanning several Reels)
@@ -64,8 +64,6 @@ class WriterBusy(RuntimeError):
     pass
 
 
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 @contextmanager
@@ -172,7 +170,7 @@ def _create_collection(spec: dict) -> str:
     name = f"reels_{embedder.signature(spec)}_{time.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:4]}"
     client().create_collection(name, embedding_function=None, configuration={"hnsw": {"space": "cosine"}},
                                metadata={"spec": json.dumps(spec, sort_keys=True),
-                                         "signature": embedder.signature(spec), "created_at": _now()})
+                                         "signature": embedder.signature(spec), "created_at": db.utc_now()})
     return name
 
 
@@ -271,7 +269,7 @@ def _write_state(collection: str, rid: str, aid: int | None, h: str | None, ids:
                        ON CONFLICT(collection, reel_id) DO UPDATE SET canonical_attempt_id=excluded.canonical_attempt_id,
                          content_hash=excluded.content_hash, chunk_ids=excluded.chunk_ids, n_chunks=excluded.n_chunks,
                          status=excluded.status, error=excluded.error, indexed_at=excluded.indexed_at""",
-                    (collection, rid, aid, h, json.dumps(ids), len(ids), status, error, _now()))
+                    (collection, rid, aid, h, json.dumps(ids), len(ids), status, error, db.utc_now()))
 
 
 def _write_error(collection: str, rid: str, aid: int, prev: dict | None, msg: str) -> None:
@@ -475,7 +473,7 @@ def verify(collection: str) -> dict:
 # ---------------------------------------------------------------- rebuild / sync orchestration
 
 def _set_build(state: str, **kw) -> None:
-    jobs.set_meta(K_BUILD, json.dumps({"state": state, "at": _now(), **kw}))
+    jobs.set_meta(K_BUILD, json.dumps({"state": state, "at": db.utc_now(), **kw}))
 
 
 def build(force: bool = False, should_continue=None) -> dict:
@@ -532,7 +530,7 @@ def sync_all(rebuild: bool = False, should_continue=None) -> dict:
     with writing():
         _ensure_schema()
         t0 = time.time()
-        out: dict = {"at": _now(), "retired_dropped": cleanup_retired()}
+        out: dict = {"at": db.utc_now(), "retired_dropped": cleanup_retired()}
         known = set(collections())
         retired = {r["name"] for r in _meta_json(K_RETIRED) or []}
         with jobs.tx() as con:                                  # bookkeeping for collections that no longer exist

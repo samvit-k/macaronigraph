@@ -11,7 +11,7 @@ import json
 import sys
 import uuid
 import zipfile
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from functools import lru_cache
 from pathlib import Path
 
@@ -225,16 +225,22 @@ def index_sync(rebuild: bool = False, wait: bool = False):
 
 # ---------- Phase 4A: knowledge graph (optional; 503 when Neo4j is offline) ----------
 
-def _graph(fn, *args, **kw):
-    from .graph import queries as gq
+@contextmanager
+def _graph_store():
     from .graph.store import GraphOffline, Neo4jStore
     store = Neo4jStore()
     try:
-        return getattr(gq, fn)(store, *args, **kw)
+        yield store
     except GraphOffline as e:
         raise HTTPException(503, f"knowledge graph offline: {e}")
     finally:
         store.close()
+
+
+def _graph(fn, *args, **kw):
+    from .graph import queries as gq
+    with _graph_store() as store:
+        return getattr(gq, fn)(store, *args, **kw)
 
 
 @app.get("/api/graph/status")
@@ -289,16 +295,11 @@ def graph_between(a: str = Query(..., min_length=1), b: str = Query(..., min_len
 
 def _view(fn, *args, **kw):
     from .graph import view as gv
-    from .graph.store import GraphOffline, Neo4jStore
-    store = Neo4jStore()
     try:
-        return getattr(gv, fn)(store, *args, **kw)
-    except GraphOffline as e:
-        raise HTTPException(503, f"knowledge graph offline: {e}")
+        with _graph_store() as store:
+            return getattr(gv, fn)(store, *args, **kw)
     except ValueError as e:
         raise HTTPException(400, str(e))
-    finally:
-        store.close()
 
 
 @app.get("/api/graph/overview")

@@ -19,10 +19,8 @@ import sqlite3
 import threading
 import time
 import uuid
-from contextlib import contextmanager
-from datetime import datetime, timezone
 
-from . import config, models
+from . import config, db, models
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS conversations (
@@ -51,34 +49,12 @@ def db_path():
     return config.OUTPUT_DIR / "conversations.db"
 
 
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-@contextmanager
 def connect():
-    config.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    con = sqlite3.connect(db_path(), timeout=30, isolation_level=None)
-    con.row_factory = sqlite3.Row
-    con.execute("PRAGMA journal_mode=WAL")
-    con.execute("PRAGMA foreign_keys=ON")
-    con.executescript(SCHEMA)
-    try:
-        yield con
-    finally:
-        con.close()
+    return db.connect(db_path(), SCHEMA, foreign_keys=True)
 
 
-@contextmanager
 def tx():
-    with _lock, connect() as con:
-        con.execute("BEGIN IMMEDIATE")
-        try:
-            yield con
-            con.execute("COMMIT")
-        except BaseException:
-            con.execute("ROLLBACK")
-            raise
+    return db.transaction(_lock, connect)
 
 
 _JSON = ("retrieval", "answer", "question_concepts", "cited_concepts", "cited_reels", "timing", "rewrite")
@@ -96,7 +72,7 @@ def create(title: str | None = None) -> str:
     cid = uuid.uuid4().hex[:12]
     with tx() as con:
         con.execute("INSERT INTO conversations(id, title, created_at, updated_at) VALUES(?,?,?,?)",
-                    (cid, (title or "")[:80], _now(), _now()))
+                    (cid, (title or "")[:80], db.utc_now(), db.utc_now()))
     return cid
 
 
@@ -139,10 +115,10 @@ def add_turn(cid: str, question: str, **fields) -> int:
     with tx() as con:
         seq = con.execute("SELECT COALESCE(MAX(seq), 0) + 1 FROM turns WHERE conversation_id=?", (cid,)).fetchone()[0]
         cols = ["conversation_id", "seq", "question", "created_at", "updated_at", *fields]
-        vals = [cid, seq, question, _now(), _now(),
+        vals = [cid, seq, question, db.utc_now(), db.utc_now(),
                 *[json.dumps(v) if k in _JSON and v is not None else v for k, v in fields.items()]]
         tid = con.execute(f"INSERT INTO turns({', '.join(cols)}) VALUES({', '.join('?' * len(cols))})", vals).lastrowid
-        con.execute("UPDATE conversations SET updated_at=? WHERE id=?", (_now(), cid))
+        con.execute("UPDATE conversations SET updated_at=? WHERE id=?", (db.utc_now(), cid))
     return tid
 
 
@@ -150,7 +126,7 @@ def update_turn(tid: int, **fields) -> None:
     sets = ", ".join(f"{k}=?" for k in fields) + ", updated_at=?"
     vals = [json.dumps(v) if k in _JSON and v is not None else v for k, v in fields.items()]
     with tx() as con:
-        con.execute(f"UPDATE turns SET {sets} WHERE id=?", (*vals, _now(), tid))
+        con.execute(f"UPDATE turns SET {sets} WHERE id=?", (*vals, db.utc_now(), tid))
 
 
 def get_turn(tid: int) -> dict | None:
@@ -170,7 +146,7 @@ def expire_queued(reason: str = "the backend restarted before this answer was ge
     """Startup: queued generations of a previous process are marked expired (visible), never silently lost."""
     with tx() as con:
         return con.execute("UPDATE turns SET status='expired', error=?, updated_at=? WHERE status='queued'",
-                           (reason, _now())).rowcount
+                           (reason, db.utc_now())).rowcount
 
 
 # ---------------------------------------------------------------- follow-ups

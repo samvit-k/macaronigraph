@@ -18,15 +18,12 @@ import hashlib
 import json
 import os
 import shutil
-import sqlite3
 import sys
 import threading
 import time
-from contextlib import contextmanager
-from datetime import datetime, timezone
 from pathlib import Path
 
-from . import config
+from . import config, db
 
 MAX_ATTEMPTS = 3          # counted attempts before a Reel is `exhausted`
 PERMANENT_CONFIRM = 2     # "page not available" must repeat before `failed_permanent`
@@ -83,38 +80,20 @@ def attempts_jsonl() -> Path:
     return config.OUTPUT_DIR / "attempts.jsonl"
 
 
-@contextmanager
-def connect():
-    config.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    con = sqlite3.connect(db_path(), timeout=30, isolation_level=None)
-    con.row_factory = sqlite3.Row
-    con.execute("PRAGMA journal_mode=WAL")
-    con.executescript(SCHEMA)
-    if "prior_state" not in {r[1] for r in con.execute("PRAGMA table_info(reels)")}:  # additive migrations
+def _migrate(con) -> None:
+    """Additive column migrations for databases created by earlier versions."""
+    if "prior_state" not in {r[1] for r in con.execute("PRAGMA table_info(reels)")}:
         con.execute("ALTER TABLE reels ADD COLUMN prior_state TEXT")
     if "capture_finished_at" not in {r[1] for r in con.execute("PRAGMA table_info(sessions)")}:
         con.execute("ALTER TABLE sessions ADD COLUMN capture_finished_at REAL")
-    try:
-        yield con
-    finally:
-        con.close()
 
 
-@contextmanager
+def connect():
+    return db.connect(db_path(), SCHEMA, migrate=_migrate)
+
+
 def tx():
-    """Serialized write transaction."""
-    with _lock, connect() as con:
-        con.execute("BEGIN IMMEDIATE")
-        try:
-            yield con
-            con.execute("COMMIT")
-        except BaseException:
-            con.execute("ROLLBACK")
-            raise
-
-
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return db.transaction(_lock, connect)
 
 
 def get_meta(key: str) -> str | None:
@@ -141,7 +120,7 @@ def import_posts(source: str, posts: list[dict]) -> int:
                ON CONFLICT(reel_id) DO UPDATE SET source_url=excluded.source_url,
                  source_index=excluded.source_index, saved_at=excluded.saved_at, media_type=excluded.media_type""",
             [(p["reel_id"], source, p["source_url"], p["source_index"], p["media_type"], p["saved_at"],
-              "pending" if p["media_type"] == "reel" else "skipped", _now_iso()) for p in posts if p["reel_id"]])
+              "pending" if p["media_type"] == "reel" else "skipped", db.utc_now()) for p in posts if p["reel_id"]])
         return con.execute("SELECT COUNT(*) FROM reels").fetchone()[0] - before
 
 
@@ -153,7 +132,7 @@ def _release(con, where: str, args: tuple) -> int:
                                      CASE WHEN attempts > 0 THEN 'needs_retry' ELSE 'pending' END),
               prior_state = NULL, lease_session = NULL, updated_at = ?
             WHERE state = 'in_progress' AND {where}""",
-        (_now_iso(), *args)).rowcount
+        (db.utc_now(), *args)).rowcount
 
 
 def reclaim_stale(con, now: float | None = None) -> int:
@@ -189,7 +168,7 @@ def create_session(session_id: str, source: str, limit: int, offset: int = 0, mo
         con.execute("INSERT INTO sessions(session_id, source, mode, created_at, last_seen, items) VALUES(?,?,?,?,?,?)",
                     (session_id, source, mode, now, now, json.dumps([i["reel_id"] for i in items])))
         con.executemany("UPDATE reels SET prior_state=state, state='in_progress', lease_session=?, updated_at=? "
-                        "WHERE reel_id=?", [(session_id, _now_iso(), i["reel_id"]) for i in items])
+                        "WHERE reel_id=?", [(session_id, db.utc_now(), i["reel_id"]) for i in items])
     return items
 
 
@@ -238,7 +217,7 @@ def mark_queued(reel_id: str, session_id: str) -> dict | None:
         row = con.execute("SELECT state, lease_session, prior_state FROM reels WHERE reel_id=?", (reel_id,)).fetchone()
         con.execute("UPDATE reels SET prior_state = CASE WHEN state IN ('in_progress','queued') THEN prior_state "
                     "ELSE state END, state='queued', lease_session=?, updated_at=? WHERE reel_id=?",
-                    (session_id, _now_iso(), reel_id))
+                    (session_id, db.utc_now(), reel_id))
     return dict(row) if row else None
 
 
@@ -249,7 +228,7 @@ def revert_queued(reel_id: str, snapshot: dict | None) -> None:
     with tx() as con:
         con.execute("UPDATE reels SET state=?, lease_session=?, prior_state=?, updated_at=? "
                     "WHERE reel_id=? AND state='queued'",
-                    (snapshot["state"], snapshot["lease_session"], snapshot["prior_state"], _now_iso(), reel_id))
+                    (snapshot["state"], snapshot["lease_session"], snapshot["prior_state"], db.utc_now(), reel_id))
 
 
 def restore_orphan_queued(keep: list[str]) -> int:
@@ -261,7 +240,7 @@ def restore_orphan_queued(keep: list[str]) -> int:
                                      CASE WHEN attempts > 0 THEN 'needs_retry' ELSE 'pending' END),
                   prior_state = NULL, lease_session = NULL, updated_at = ?
                 WHERE state = 'queued' {f'AND reel_id NOT IN ({ph})' if keep else ''}""",
-            (_now_iso(), *keep)).rowcount
+            (db.utc_now(), *keep)).rowcount
 
 
 # ---------------------------------------------------------------- attempts
@@ -310,7 +289,7 @@ def record_attempt(record: dict, export: bool = True) -> dict:
             # undo a stale `queued` mark for this same session so the Reel is not stranded.
             con.execute("""UPDATE reels SET state = COALESCE(prior_state, state), prior_state = NULL,
                              lease_session = NULL, updated_at = ?
-                           WHERE reel_id = ? AND state = 'queued' AND lease_session = ?""", (_now_iso(), rid, sid))
+                           WHERE reel_id = ? AND state = 'queued' AND lease_session = ?""", (db.utc_now(), rid, sid))
             _maybe_finalize(con, sid)
             reel = con.execute("SELECT state FROM reels WHERE reel_id=?", (rid,)).fetchone()
             return {"attempt_id": dup["attempt_id"], "duplicate": True, "outcome": dup["outcome"],
@@ -324,7 +303,7 @@ def record_attempt(record: dict, export: bool = True) -> dict:
         reel = con.execute("SELECT * FROM reels WHERE reel_id=?", (rid,)).fetchone()
         if reel is None:  # not in the job table (e.g. metadata missing): track it anyway
             con.execute("INSERT INTO reels(reel_id, source, source_url, state, updated_at) VALUES(?,?,?,?,?)",
-                        (rid, sid.split("-")[0], record.get("source_url"), "pending", _now_iso()))
+                        (rid, sid.split("-")[0], record.get("source_url"), "pending", db.utc_now()))
             reel = con.execute("SELECT * FROM reels WHERE reel_id=?", (rid,)).fetchone()
 
         attempts = reel["attempts"] + int(counted)
@@ -343,7 +322,7 @@ def record_attempt(record: dict, export: bool = True) -> dict:
         con.execute("""UPDATE reels SET state=?, attempts=?, last_status=?, last_error=?, lease_session=NULL,
                        prior_state=NULL, canonical_attempt_id=?, updated_at=? WHERE reel_id=?""",
                     (state, attempts, record["status"], "; ".join(record["errors"])[:500] or None,
-                     canonical, _now_iso(), rid))
+                     canonical, db.utc_now(), rid))
         _maybe_finalize(con, sid)  # last queued upload of a capture-finished session → session finalized
     _append_history(record, attempt_id, outcome)
     if export:
@@ -433,7 +412,7 @@ def requeue(reel_ids: list[str], reset_attempts: bool = True) -> int:
     with tx() as con:
         return sum(con.execute(f"UPDATE reels SET state='pending', lease_session=NULL"
                                f"{', attempts=0' if reset_attempts else ''}, updated_at=? WHERE reel_id=?",
-                               (_now_iso(), rid)).rowcount for rid in reel_ids)
+                               (db.utc_now(), rid)).rowcount for rid in reel_ids)
 
 
 # ---------------------------------------------------------------- Phase 1 migration
@@ -492,7 +471,7 @@ def migrate_phase1(path: Path | None = None, sources: dict[str, list[dict]] | No
     with tx() as con:  # completion marker + clearing the in-progress marker happen atomically
         con.execute("INSERT INTO meta(key, value) VALUES('phase1_migration', ?) "
                     "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                    (json.dumps({"backup": str(backup), "imported": imported, "at": _now_iso()}),))
+                    (json.dumps({"backup": str(backup), "imported": imported, "at": db.utc_now()}),))
         con.execute("DELETE FROM meta WHERE key='phase1_migration_in_progress'")
     return {"backup": str(backup), "imported": imported, "skipped": skipped}
 
