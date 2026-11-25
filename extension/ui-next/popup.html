@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="color-scheme" content="light dark">
+<link rel="stylesheet" href="popup.css">
+<body>
+  <header class="top enter" style="--order:0">
+    <div class="brand">
+      <img class="logo" src="icons/icon48.png" alt="">
+      <span>MacaroniGraph</span>
+    </div>
+    <span id="health" class="status" title="Checking Backend…"><i class="dot"></i><span id="healthText">Checking</span></span>
+  </header>
+
+  <!-- 1. Library progress -->
+  <section class="library enter" style="--order:1" aria-labelledby="libLabel">
+    <h2 id="libLabel">Library</h2>
+    <div class="split">
+      <div class="split-left">
+        <div class="tally" id="ofTotal">
+          <span id="stDone" class="big">–</span><span class="slash">/<span id="stTotal">–</span></span><span class="tally-label">Processed</span>
+        </div>
+        <div class="meter" role="img" aria-label="Library Progress">
+          <i id="barDone" class="seg-done"></i><i id="barActive" class="seg-active"></i><i id="barFailed" class="seg-failed"></i>
+        </div>
+      </div>
+      <dl class="legend">
+        <div><dt><i class="sw done"></i>Processed</dt><dd id="lgDone">–</dd></div>
+        <div><dt><i class="sw pending"></i>Pending</dt><dd id="lgPending">–</dd></div>
+        <div id="lgFailedWrap" title=""><dt><i class="sw failed"></i>Failed</dt><dd id="lgFailed">–</dd></div>
+      </dl>
+    </div>
+    <p id="libNote" class="note"></p>
+  </section>
+
+  <!-- 2a. Idle: batch setup -->
+  <section id="idleView" class="batch enter" style="--order:2" aria-labelledby="batchLabel">
+    <h2 id="batchLabel">Next Batch</h2>
+
+    <div class="control row">
+      <span class="label">Source</span>
+      <div class="seg" data-for="source" role="radiogroup" aria-label="Source">
+        <button type="button" data-value="instagram">Instagram Saved</button>
+        <button type="button" data-value="test">Test Media</button>
+      </div>
+      <input type="hidden" id="source" value="instagram">
+    </div>
+
+    <div class="control row">
+      <span class="label">Queue</span>
+      <div class="seg" data-for="mode" role="radiogroup" aria-label="Queue">
+        <button type="button" data-value="pending" title="Pending Reels And Retries: Continue Where You Left Off">Resume</button>
+        <button type="button" data-value="all" title="Process Every Reel Again (Good Results Are Never Downgraded)">Reprocess All</button>
+      </div>
+      <input type="hidden" id="mode" value="pending">
+    </div>
+
+    <div class="control inline">
+      <label class="label" for="limit">Batch Size</label>
+      <div class="stepper">
+        <button type="button" data-step="-5" aria-label="Decrease Batch Size">−</button>
+        <input id="limit" type="number" value="25" min="1" max="900" inputmode="numeric">
+        <button type="button" data-step="5" aria-label="Increase Batch Size">+</button>
+      </div>
+    </div>
+
+    <button id="start" class="primary" type="button">Start Processing</button>
+    <p id="hint" class="hint"><span id="estimate"></span><span id="hintText" title="Open The Popup From The Worker Tab (On The Queue's Site), Press Start, Then Click ▶ On The Page">Then Click ▶ On The Page</span></p>
+  </section>
+
+  <!-- 2b. Running -->
+  <section id="runView" class="running" hidden aria-live="polite" aria-labelledby="runLabel">
+    <h2 id="runLabel"><i class="pulse"></i><span id="runTitle">Running</span></h2>
+    <div class="hero">
+      <span id="runDone" class="big">0</span>
+      <span class="of">Of <b id="runTotal">0</b> In This Batch</span>
+    </div>
+    <div class="meter"><i id="runBar" class="seg-done"></i></div>
+    <p id="runCurrent" class="current"></p>
+    <button id="stop" class="stop" type="button">Stop</button>
+  </section>
+
+  <!-- 3. Activity + advanced -->
+  <details id="logWrap" class="fold enter" style="--order:3">
+    <summary><span>Recent Activity</span><span id="logCount" class="count"></span></summary>
+    <ol id="log" class="log"></ol>
+  </details>
+
+  <details class="fold enter" style="--order:4">
+    <summary><span>Advanced</span></summary>
+    <div class="advanced">
+      <div class="control inline">
+        <label class="label" for="offset">Skip First</label>
+        <input id="offset" class="field" type="number" value="0" min="0" inputmode="numeric">
+      </div>
+      <div class="control inline">
+        <label class="label" for="interval">Frame Interval (ms)</label>
+        <input id="interval" class="field" type="number" value="1000" min="200" step="100" inputmode="numeric">
+      </div>
+      <label class="check">
+        <input id="evalToggle" type="checkbox">
+        <span>Use The OCR Evaluation Set (Debug)</span>
+      </label>
+    </div>
+  </details>
+
+  <script src="popup.js"></script>
+</body>
+</html>
