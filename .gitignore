@@ -1,0 +1,46 @@
+# --- Local toolchain and environments (created by scripts/setup.sh) ---
+.venv/
+.venv.bak-*/
+.tools/
+.tmp/
+__pycache__/
+*.pyc
+.pytest_cache/
+frontend/node_modules/
+
+# --- Built frontend (reproducible: `cd frontend && npm ci && npm run build`) ---
+backend/static/workspace/
+
+# --- Private data: never commit ---
+# Instagram data export (saved posts, account and login information)
+instagram-*/
+saved_posts.json
+# Pipeline output: SQLite job database, Chroma index, Neo4j data, transcripts, conversations, eval frames
+output/
+# Local source checkpoints
+checkpoints/
+# Credentials and local overrides (Neo4j password lives in .env.local)
+.env
+.env.*
+*.local
+*.local.json
+*.pem
+*.key
+
+# Evaluation datasets and reports built from the owner's saved Reels (Reel IDs, quotes, judgments).
+# The evaluation scripts still run locally against these files; see docs/EVALUATION.md.
+reports/
+fixtures/rag_questions*.json
+fixtures/search_queries.json
+
+# --- Unused development artefacts (kept locally) ---
+extension/popup.html
+extension/popup.js
+extension/ui-next/manifest.previous.json
+extension/ui-next/manifest.next.json
+
+# --- Editor, OS and tool state ---
+.claude/
+.DS_Store
+*.log
+.backend.log
