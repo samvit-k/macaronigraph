@@ -5,6 +5,7 @@ import json
 import pytest
 
 from backend import answer, models
+from helpers import heavy_lock_held
 
 
 @pytest.fixture(autouse=True)
@@ -181,23 +182,10 @@ def test_no_sources_means_no_generation():
 # ---------------------------------------------------------------- model lock
 
 def test_generation_waits_for_the_heavy_lock_and_times_out_cleanly():
-    import threading
-    entered, release = threading.Event(), threading.Event()
-
-    def hold():
-        with models.heavy("graph extraction"):
-            entered.set()
-            release.wait(10)
-    t = threading.Thread(target=hold)
-    t.start()
-    entered.wait(5)
-    try:
+    with heavy_lock_held():
         with pytest.raises(models.HeavyBusy):
             answer.generate("q", PACK, llm=Scripted("{}"), timeout=0.3)
         assert not models.interactive_waiting()                                # marker released on timeout
-    finally:
-        release.set()
-        t.join(5)
 
 
 # ---------------------------------------------------------------- Phase 4C prompt versions and quotes

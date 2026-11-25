@@ -1,6 +1,5 @@
 """Graph sync (mocked: in-memory store with the Neo4jStore interface + deterministic fake LLM; real SQLite and a
 real temp Chroma index with the hashing embedder). Live Neo4j behaviour is in test_graph_neo4j_live.py."""
-import hashlib
 import json
 import re
 import threading
@@ -12,6 +11,7 @@ from backend import config, embedder, indexer, jobs
 from backend.graph import extract as ex
 from backend.graph import sync as gs
 from backend.graph.store import GraphOffline
+from helpers import canonical_digest, production_path_guard
 from test_chunking import make_record, seg
 from test_indexer import add
 
@@ -94,23 +94,8 @@ def env(isolated_output, monkeypatch):
     monkeypatch.setattr(gs, "_requests", [])
     monkeypatch.setattr(gs, "_request_log", {})
     jobs._export_state.update(pending=0, last=0.0)
-    # Hard guard installed outside monkeypatch (a monkeypatch rollback cannot remove it): any database or
-    # Chroma access outside the temp OUTPUT_DIR fails the test instead of touching production data.
-    real_db, real_chroma = jobs.db_path, config.chroma_dir
-
-    def guarded(fn):
-        def inner():
-            p = fn()
-            assert isolated_output in p.parents, f"test reached production path {p}"
-            return p
-        return inner
-
-    jobs.db_path, config.chroma_dir = guarded(real_db), guarded(real_chroma)
-    try:
+    with production_path_guard(isolated_output):
         yield
-    finally:
-        jobs.db_path, config.chroma_dir = real_db, real_chroma
-        indexer.release_writer()
 
 
 def triton_reel(rid="A", extra=""):
@@ -119,15 +104,6 @@ def triton_reel(rid="A", extra=""):
 
 def run(store, llm, **kw):
     return gs.sync(store=store, llm=llm, **kw)
-
-
-def digest_canonical():
-    with jobs.connect() as con:
-        h = hashlib.sha256()
-        for t in ("reels", "attempts", "sessions"):
-            for row in con.execute(f"SELECT * FROM {t} ORDER BY rowid"):
-                h.update(repr(tuple(row)).encode())
-        return h.hexdigest()
 
 
 # ---------------------------------------------------------------- ingest / skip / update
@@ -199,9 +175,9 @@ def test_test_clips_are_excluded_from_the_production_graph():
 def test_sync_never_modifies_canonical_tables():
     triton_reel("A")
     indexer.sync_all()
-    before = digest_canonical()
+    before = canonical_digest()
     run(FakeStore(), FakeLLM())
-    assert digest_canonical() == before
+    assert canonical_digest() == before
 
 
 # ---------------------------------------------------------------- failures and recovery

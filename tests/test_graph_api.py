@@ -1,45 +1,26 @@
 """Graph API with Neo4j unavailable: graph endpoints report 503 / offline; the rest of the backend is unaffected."""
-import socket
 
 import pytest
 from fastapi.testclient import TestClient
 
 from backend import config, embedder, indexer, jobs
 from backend.app import app
+from helpers import free_port, production_path_guard
 from test_indexer import add
 
 client = TestClient(app)   # no lifespan: background threads are not started
 
 
-def _closed_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
 @pytest.fixture(autouse=True)
 def offline(isolated_output, monkeypatch):
-    monkeypatch.setattr(config, "NEO4J_URI", f"bolt://127.0.0.1:{_closed_port()}")
+    monkeypatch.setattr(config, "NEO4J_URI", f"bolt://127.0.0.1:{free_port()}")
     monkeypatch.setattr(config, "NEO4J_PASSWORD", "x" * 32)
     monkeypatch.setattr(config, "EMBED_MODEL", embedder.HashEmbedder.MODEL)
     monkeypatch.setattr(embedder, "_cache", {})
     monkeypatch.setattr(indexer, "_clients", {})
     jobs._export_state.update(pending=0, last=0.0)
-    real_db, real_chroma = jobs.db_path, config.chroma_dir      # hard guard against production paths
-
-    def guarded(fn):
-        def inner():
-            p = fn()
-            assert isolated_output in p.parents, f"test reached production path {p}"
-            return p
-        return inner
-
-    jobs.db_path, config.chroma_dir = guarded(real_db), guarded(real_chroma)
-    try:
+    with production_path_guard(isolated_output):
         yield
-    finally:
-        jobs.db_path, config.chroma_dir = real_db, real_chroma
-        indexer.release_writer()
 
 
 @pytest.mark.parametrize("path", ["/api/graph/verify", "/api/graph/reel/A", "/api/graph/concept?name=CUDA",

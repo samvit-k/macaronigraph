@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from backend import ask, config, conversations, embedder, indexer, jobs, models
 from backend.app import app
+from helpers import heavy_lock_held
 from test_indexer import add
 from test_rag_retrieve import FakeGraph
 
@@ -131,21 +132,9 @@ def test_capture_defers_generation_then_the_queue_answers_with_the_standalone_qu
 
 
 def test_model_busy_beyond_the_wait_defers_instead_of_failing(env):
-    entered, release = threading.Event(), threading.Event()
-
-    def hold():
-        with models.heavy("graph extraction"):
-            entered.set()
-            release.wait(10)
-    t = threading.Thread(target=hold)
-    t.start()
-    entered.wait(5)
-    try:
+    with heavy_lock_held():
         r = ask.ask("How do CUDA kernels work?", llm=env)
         assert r["status"] == "queued" and "graph extraction" in r["answer"]["reason"]
-    finally:
-        release.set()
-        t.join(5)
     assert ask.process_one(llm=env) == r["request_id"] and ask.request_status(r["request_id"])["status"] == "ok"
 
 

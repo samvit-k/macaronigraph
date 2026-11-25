@@ -2,7 +2,6 @@
 password — started with scripts/neo4j.sh and stopped afterwards. The production database (output/neo4j) is
 never touched. Skipped when Neo4j is not installed in .tools/neo4j."""
 import os
-import socket
 import subprocess
 import time
 from pathlib import Path
@@ -13,6 +12,7 @@ from backend import config, embedder, indexer, jobs
 from backend.graph import queries as q
 from backend.graph import store as st
 from backend.graph import sync as gs
+from helpers import free_port, production_path_guard
 from test_graph_sync import FakeLLM, triton_reel
 from test_indexer import add
 
@@ -22,16 +22,10 @@ pytestmark = pytest.mark.skipif(not (ROOT / ".tools" / "neo4j" / "bin" / "neo4j"
                                 reason="Neo4j not installed (scripts/neo4j.sh install)")
 
 
-def _free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
 @pytest.fixture(scope="module")
 def neo(tmp_path_factory):
     d = tmp_path_factory.mktemp("neo4j-throwaway")
-    bolt, http = _free_port(), _free_port()
+    bolt, http = free_port(), free_port()
     env = {**os.environ, "NEO4J_CONF_DIR": str(d / "conf"), "NEO4J_DATA_DIR": str(d / "data"),
            "NEO4J_ENV_FILE": str(d / ".env"), "NEO4J_BOLT_PORT": str(bolt), "NEO4J_HTTP_PORT": str(http)}
     for cmd in ("install", "start"):
@@ -63,21 +57,8 @@ def clean(neo, isolated_output, monkeypatch):
     monkeypatch.setattr(embedder, "_cache", {})
     monkeypatch.setattr(indexer, "_clients", {})
     jobs._export_state.update(pending=0, last=0.0)
-    real_db, real_chroma = jobs.db_path, config.chroma_dir      # hard guard against production paths
-
-    def guarded(fn):
-        def inner():
-            p = fn()
-            assert isolated_output in p.parents, f"test reached production path {p}"
-            return p
-        return inner
-
-    jobs.db_path, config.chroma_dir = guarded(real_db), guarded(real_chroma)
-    try:
+    with production_path_guard(isolated_output):
         yield
-    finally:
-        jobs.db_path, config.chroma_dir = real_db, real_chroma
-        indexer.release_writer()
 
 
 def doc(rid, concepts, assertions=(), passages=None, h="h1"):
@@ -143,7 +124,7 @@ def test_failed_transaction_preserves_previous_graph(neo):
 
 
 def test_offline_store_reports_graph_offline_and_closes_driver():
-    s = st.Neo4jStore(uri=f"bolt://127.0.0.1:{_free_port()}", user="neo4j", password="x" * 32)
+    s = st.Neo4jStore(uri=f"bolt://127.0.0.1:{free_port()}", user="neo4j", password="x" * 32)
     with pytest.raises(st.GraphOffline):
         s.ping()
     assert s._driver is None

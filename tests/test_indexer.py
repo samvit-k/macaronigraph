@@ -2,7 +2,6 @@
 preservation, idle gating, interruption, verified rebuilds, retirement of replaced collections, and
 writer-lock shutdown safety. Everything runs in a temp OUTPUT_DIR with a deterministic hashing embedder."""
 import fcntl
-import hashlib
 import io
 import threading
 import time
@@ -10,6 +9,7 @@ import time
 import pytest
 
 from backend import config, embedder, indexer, jobs, worker
+from helpers import canonical_digest
 from test_chunking import make_record, oseg, seg
 
 
@@ -50,15 +50,6 @@ def active_col():
 
 def ids_for(col, rid):
     return sorted(col.get(where={"reel_id": rid}, include=[])["ids"])
-
-
-def table_digest():
-    with jobs.connect() as con:
-        h = hashlib.sha256()
-        for t in ("reels", "attempts", "sessions"):
-            for row in con.execute(f"SELECT * FROM {t} ORDER BY rowid"):
-                h.update(repr(tuple(row)).encode())
-        return h.hexdigest()
 
 
 # ---------------------------------------------------------------- basic incremental behaviour
@@ -119,10 +110,10 @@ def test_failed_reel_is_never_indexed():
 def test_sync_never_writes_the_job_tables():
     add("A")
     add("B", "python")
-    before = table_digest()
+    before = canonical_digest()
     indexer.sync_all()
     indexer.sync_all(rebuild=True)
-    assert table_digest() == before
+    assert canonical_digest() == before
 
 
 def test_reel_processed_by_the_worker_is_picked_up_by_the_next_sync(monkeypatch):
