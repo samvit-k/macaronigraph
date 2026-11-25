@@ -103,6 +103,9 @@ CONFIGS.update({
 
 def load(name: str, final: bool = False):
     path, split = SETS[name]
+    if not path.is_file():
+        sys.exit(f"{path.relative_to(ROOT)} not found: this private evaluation dataset is not part of the repository "
+                 "(see README, Evaluation)")
     raw = path.read_bytes()
     sha = hashlib.sha256(raw).hexdigest()
     if name == "v1dev" and sha != V1_SHA:

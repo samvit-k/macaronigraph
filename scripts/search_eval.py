@@ -132,6 +132,9 @@ def evaluate(model: str, chunks: list[dict], queries: list[dict]) -> dict:
 
 
 def main(models: list[str]) -> int:
+    if not QUERIES.is_file():
+        sys.exit(f"{QUERIES.relative_to(ROOT)} not found: this private evaluation dataset is not part of the repository "
+                 "(see README, Evaluation)")
     queries = json.loads(QUERIES.read_text())["queries"]
     chunks = corpus()
     reels = {c["metadata"]["reel_id"] for c in chunks}

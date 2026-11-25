@@ -38,8 +38,15 @@ GRID = {"min_specificity": [0.55, 0.65, 0.75], "rel_frac": [0.5, 0.6, 0.7], "pro
         "w_co_mention": [0.4, 0.6, 1.0], "reserve_graph": [2, 4]}
 
 
+def require(path: Path) -> Path:
+    if not path.is_file():
+        sys.exit(f"{path.relative_to(ROOT)} not found: this private evaluation dataset is not part of the repository "
+                 "(see README, Evaluation)")
+    return path
+
+
 def load(split: str | None):
-    raw = DATASET.read_bytes()
+    raw = require(DATASET).read_bytes()
     sha = hashlib.sha256(raw).hexdigest()
     if sha != FROZEN_SHA256:
         sys.exit(f"dataset changed (sha256 {sha[:12]} ≠ frozen {FROZEN_SHA256[:12]}): refusing to evaluate")
@@ -223,7 +230,7 @@ def answer_auto_metrics(rows: list[dict]) -> dict:
 # ---------------------------------------------------------------- Phase 3 baseline
 
 def run_baseline(params: dict) -> dict:
-    qs = json.loads(SEARCH_QUERIES.read_text())["queries"]
+    qs = json.loads(require(SEARCH_QUERIES).read_text())["queries"]
     out = {}
     for mode in MODES:
         rows = []
