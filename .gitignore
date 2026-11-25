@@ -36,6 +36,9 @@ fixtures/rag_questions*.json
 fixtures/search_queries.json
 fixtures/rag_answer_config_phase4c.json
 
+# Internal development documentation
+docs/
+
 # Unused local development artefacts
 extension/popup.html
 extension/popup.js
