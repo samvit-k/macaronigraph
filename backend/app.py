@@ -8,7 +8,6 @@ import io
 import json
 import sys
 import uuid
-import zipfile
 from contextlib import asynccontextmanager, contextmanager
 from functools import lru_cache
 from pathlib import Path
@@ -19,7 +18,7 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import config, evalframes, indexer, jobs, metadata, worker
+from . import config, evalframes, extension_package, indexer, jobs, metadata, worker
 
 SOURCES = {"test": config.TEST_POSTS_PATH, "instagram": config.INSTAGRAM_POSTS_PATH}
 
@@ -335,12 +334,6 @@ def legacy_app_redirect(path: str = ""):
     return RedirectResponse("/workspace/")
 
 WORKSPACE_DIR = Path(__file__).with_name("static") / "workspace"
-EXTENSION_DIR = Path(__file__).resolve().parent.parent / "extension"
-EXTENSION_FILES = (
-    "manifest.json", "background.js", "content.js", "crop.js", "offscreen.html", "offscreen.js",
-    "ui/popup.html", "ui/popup.css", "ui/popup.js", "ui/logo.svg",
-    "ui/icons/icon16.png", "ui/icons/icon32.png", "ui/icons/icon48.png", "ui/icons/icon128.png",
-)
 
 def _workspace_file(name: str) -> Path:
     path = WORKSPACE_DIR / name
@@ -355,12 +348,10 @@ def welcome():
 @app.get("/welcome/extension.zip")
 def extension_zip():
     buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-        for rel in EXTENSION_FILES:
-            path = EXTENSION_DIR / rel
-            if not path.is_file():
-                raise HTTPException(500, f"extension file missing: {rel}")
-            z.write(path, f"macaronigraph-extension/{rel}")
+    try:
+        extension_package.write_zip(buf)
+    except FileNotFoundError as e:
+        raise HTTPException(500, str(e))
     return Response(buf.getvalue(), media_type="application/zip",
                     headers={"Content-Disposition": 'attachment; filename="macaronigraph-extension.zip"'})
 

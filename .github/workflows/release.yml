@@ -1,0 +1,22 @@
+# On a version tag (v*), packages the extension from its allowlist and attaches it to a GitHub Release.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m backend.extension_package macaronigraph-extension.zip
+      - run: gh release create "$GITHUB_REF_NAME" macaronigraph-extension.zip --title "MacaroniGraph $GITHUB_REF_NAME" --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}

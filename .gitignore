@@ -12,8 +12,9 @@ node_modules/
 *.safetensors
 *.gguf
 
-# Built frontend (cd frontend && npm ci && npm run build)
+# Built frontend (cd frontend && npm ci && npm run build | build:pages)
 backend/static/workspace/
+frontend/dist-pages/
 
 # Private data: Instagram export, pipeline output (SQLite, Chroma, Neo4j, transcripts, conversations), checkpoints
 instagram-*/

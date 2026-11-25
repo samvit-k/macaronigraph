@@ -2,6 +2,8 @@
 
 **A knowledge graph of your saved Instagram Reels.**
 
+[Project page](https://samvit-k.github.io/macaronigraph/) · [Download the extension](https://github.com/samvit-k/macaronigraph/releases/latest/download/macaronigraph-extension.zip)
+
 MacaroniGraph turns the Reels you save into searchable passages (transcripts, captions and on-screen text), links
 them through the concepts they mention, and answers your questions with citations to the original Reels.
 Transcription, text recognition, embeddings, the graph and the AI answers all run locally on a Mac.
@@ -73,7 +75,8 @@ cd frontend && npm ci && npm run build && cd ..       # builds the workspace int
 
 1. **Start the backend:** `.venv/bin/uvicorn backend.app:app --port 8765`.
 2. **Install the extension:**
-   1. Open `http://127.0.0.1:8765/welcome` and click **Download Extension (.zip)**, or use the `extension/` folder directly.
+   1. Open `http://127.0.0.1:8765/welcome` and click **Download Extension (.zip)**, download it from the
+      [latest release](https://github.com/samvit-k/macaronigraph/releases/latest), or use the `extension/` folder directly.
    2. In `chrome://extensions`, turn on **Developer mode**, click **Load unpacked** and choose the folder.
 3. **Point it at your saved Reels:**
    1. Request your Instagram data export.
@@ -288,6 +291,7 @@ backend/      FastAPI app, capture processing (jobs, worker, transcribe, ocr, re
               answers (rag, ask, answer, listing, evidence, verify, conversations), graph/ (extract, normalize, sync, queries, view)
 extension/    MV3 Chrome extension: background, content and offscreen scripts, popup (ui/)
 frontend/     MacaroniGraph workspace and welcome page (React, Cytoscape, d3-force, Vite) and browser checks (e2e/)
+.github/      workflows: publish the welcome page to GitHub Pages; attach the extension zip to tagged releases
 scripts/      setup, Neo4j installer, environment check, test-media generator, validation, evaluation and integrity tools
 fixtures/     synthetic test media and ground truth, frozen retrieval and answer configurations
 tests/        pytest suite (+ tests/ext for the extension)

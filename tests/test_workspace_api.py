@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend import app as app_mod
-from backend import ask
+from backend import ask, extension_package
 from backend.graph import store as st
 
 client = TestClient(app_mod.app)
@@ -16,7 +16,7 @@ def test_extension_zip_contains_exactly_the_allowlist():
     assert r.status_code == 200 and r.headers["content-type"] == "application/zip"
     assert "macaronigraph-extension.zip" in r.headers["content-disposition"]
     names = zipfile.ZipFile(io.BytesIO(r.content)).namelist()
-    assert names == [f"macaronigraph-extension/{f}" for f in app_mod.EXTENSION_FILES]
+    assert names == [f"macaronigraph-extension/{f}" for f in extension_package.FILES]
     for n in names:
         base = n.rsplit("/", 1)[-1]
         assert not base.startswith(".") and base not in ("manifest.previous.json", "manifest.next.json")
@@ -27,14 +27,14 @@ def test_extension_zip_contains_exactly_the_allowlist():
 def test_allowlist_covers_every_file_the_manifest_and_popup_reference():
     import json
     import re
-    root = app_mod.EXTENSION_DIR
+    root = extension_package.EXTENSION_DIR
     m = json.loads((root / "manifest.json").read_text())
     refs = {m["background"]["service_worker"], m["action"]["default_popup"], *m["icons"].values()}
     popup = (root / m["action"]["default_popup"]).read_text()
     refs |= {f"ui/{x}" for x in re.findall(r'(?:src|href)="([^":]+)"', popup)}
     bg = (root / "background.js").read_text()
     refs |= set(re.findall(r'["\']([a-z]+\.(?:js|html))["\']', bg))
-    assert refs <= set(app_mod.EXTENSION_FILES), refs - set(app_mod.EXTENSION_FILES)
+    assert refs <= set(extension_package.FILES), refs - set(extension_package.FILES)
 
 def test_welcome_and_workspace_are_served_when_built():
     if not (app_mod.WORKSPACE_DIR / "index.html").is_file():
@@ -78,3 +78,8 @@ def test_clear_all_conversations_endpoint(isolated_output):
     r = client.delete("/api/conversations")
     assert r.status_code == 200 and r.json() == {"deleted": 2}
     assert client.get("/api/conversations").json() == [] and cv.get(a) is None
+def test_release_packager_matches_the_download(tmp_path):
+    out = tmp_path / "ext.zip"
+    extension_package.write_zip(out)
+    served = zipfile.ZipFile(io.BytesIO(client.get("/welcome/extension.zip").content)).namelist()
+    assert zipfile.ZipFile(out).namelist() == served

@@ -5,4 +5,4 @@ import Welcome from './welcome/Welcome.jsx'
 import './styles/tokens.css'
 import './styles/welcome.css'
 
-createRoot(document.getElementById('root')).render(<StrictMode><Welcome /></StrictMode>)
+createRoot(document.getElementById('root')).render(<StrictMode><Welcome hosted={import.meta.env.MODE === 'pages'} /></StrictMode>)
