@@ -1,3 +1,4 @@
+// Graph model, filters, highlights and deterministic layout.
 import { describe, expect, it } from 'vitest'
 import { computeLayout } from './layout.js'
 import { answerHighlight, buildElements, collapse, DEFAULT_FILTERS, emptyModel, filterCounts, hiddenIds, matchingIds,
@@ -45,7 +46,7 @@ describe('graph model', () => {
     expect(exp.expanded['reel:R1']).toEqual(['concept:cuda', 'concept:pytorch'])
     const back = collapse(exp, 'reel:R1', base)
     expect(back.concepts.pytorch).toBeUndefined()
-    expect(back.concepts.cuda).toBeTruthy() // still part of the overview
+    expect(back.concepts.cuda).toBeTruthy()
     expect(back.mentions['R1|pytorch']).toBeUndefined()
     expect(back.expanded['reel:R1']).toBeUndefined()
   })
@@ -57,7 +58,7 @@ describe('graph model', () => {
     expect(exp.labels['concept:pytorch']).toBe(6)
     const back = collapse(exp, 'reel:R1', base)
     const again = mergeNeighborhood(back, NBH)
-    expect(again.labels['concept:pytorch']).toBe(6) // same node, same number
+    expect(again.labels['concept:pytorch']).toBe(6)
   })
 
   it('filters hide concept types, edge kinds and single-Reel concepts (with their edges)', () => {
@@ -94,7 +95,7 @@ describe('layout', () => {
     const grown = buildElements(mergeNeighborhood(mergeOverview(emptyModel(), OVERVIEW), NBH))
     const c = computeLayout(grown, a)
     const moved = Math.hypot(c['reel:R1'].x - a['reel:R1'].x, c['reel:R1'].y - a['reel:R1'].y)
-    expect(moved).toBeLessThan(150) // grows in place instead of reshuffling
+    expect(moved).toBeLessThan(150)
   })
 })
 

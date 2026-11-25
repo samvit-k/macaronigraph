@@ -1,5 +1,7 @@
-"""Verify ffmpeg, tesseract and the Python stack actually work (not just exist).
-Run from any directory: .venv/bin/python scripts/check_env.py [--whisper] [--embed] [--graph]"""
+"""Verify that ffmpeg, Tesseract and the Python stack actually work.
+
+Usage: .venv/bin/python scripts/check_env.py [--whisper] [--embed] [--graph]
+"""
 from __future__ import annotations
 
 import subprocess

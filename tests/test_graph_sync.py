@@ -1,5 +1,4 @@
-"""Graph sync (mocked: in-memory store with the Neo4jStore interface + deterministic fake LLM; real SQLite and a
-real temp Chroma index with the hashing embedder). Live Neo4j behaviour is in test_graph_neo4j_live.py."""
+"""Graph sync with an in-memory store and a deterministic fake LLM over real SQLite and Chroma."""
 import json
 import re
 import threading
@@ -16,7 +15,6 @@ from test_chunking import make_record, seg
 from test_indexer import add
 
 class FakeStore:
-    """Same interface as Neo4jStore; keeps whole Reel documents (one 'transaction' = one dict assignment)."""
 
     def __init__(self):
         self.docs, self.ready, self.offline, self.fail_write, self.fail_ready = {}, {}, False, None, False
@@ -58,7 +56,6 @@ class FakeStore:
 TERMS = ["Triton", "CUDA", "sourdough", "asyncio", "Python", "LiDAR", "robot"]
 
 class FakeLLM:
-    """Proposes every known term that occurs in a passage; one relation when a passage says 'built on top of'."""
     version = "x-fake-1"
 
     def __init__(self):
@@ -99,8 +96,6 @@ def triton_reel(rid="A", extra=""):
 def run(store, llm, **kw):
     return gs.sync(store=store, llm=llm, **kw)
 
-# ---------------------------------------------------------------- ingest / skip / update
-
 def test_initial_ingest_links_passages_to_chroma_chunks_with_provenance():
     triton_reel("A")
     add("B", "asyncio in Python")
@@ -111,7 +106,6 @@ def test_initial_ingest_links_passages_to_chroma_chunks_with_provenance():
     doc = store.docs["A"]
     col = indexer.get_collection(indexer.active_collection())
     assert {p["chunk_id"] for p in doc["passages"]} == set(col.get(where={"reel_id": "A"}, include=[])["ids"])
-    # the claim is stated in the caption and in speech: one assertion per evidence passage
     assert sorted(x["chunk_id"].split(":")[1] for x in doc["assertions"]) == ["caption", "transcript"]
     a = _the_assertion(store)
     assert (a["subject"], a["predicate"], a["object"], a["status"]) == ("triton", "DEPENDS_ON", "cuda", "proposed")
@@ -147,7 +141,7 @@ def test_repeated_sync_creates_no_duplicates():
     for _ in range(3):
         run(store, llm)
     doc = store.docs["A"]
-    assert len(doc["assertions"]) == len({a["id"] for a in doc["assertions"]}) == 2   # caption + speech
+    assert len(doc["assertions"]) == len({a["id"] for a in doc["assertions"]}) == 2
     assert len(doc["mentions"]) == len({(m["chunk_id"], m["key"]) for m in doc["mentions"]})
 
 def test_test_clips_are_excluded_from_the_production_graph():
@@ -167,8 +161,6 @@ def test_sync_never_modifies_canonical_tables():
     run(FakeStore(), FakeLLM())
     assert canonical_digest() == before
 
-# ---------------------------------------------------------------- failures and recovery
-
 def test_failed_extraction_keeps_previous_graph_knowledge():
     triton_reel("A")
     indexer.sync_all()
@@ -180,12 +172,12 @@ def test_failed_extraction_keeps_previous_graph_knowledge():
     llm.fail = RuntimeError("model crashed")
     st = run(store, llm)
     assert st["extract_errors"] == 1
-    assert json.dumps(store.docs["A"], sort_keys=True) == old                     # graph untouched
+    assert json.dumps(store.docs["A"], sort_keys=True) == old
     s = gs.states()["A"]
     assert s["status"] == "error" and s["graph_hash"] == old_state["graph_hash"]
-    assert s["canonical_attempt_id"] == old_state["canonical_attempt_id"]       # still describes the graph
+    assert s["canonical_attempt_id"] == old_state["canonical_attempt_id"]
     llm.fail = None
-    indexer.sync_all()                                                           # Chroma catches up too
+    indexer.sync_all()
     st = run(store, llm)
     assert st["written"] == 1 and gs.states()["A"]["status"] == "ready"
 
@@ -203,7 +195,7 @@ def test_failed_graph_transaction_keeps_previous_graph_and_retries():
     store.fail_write = None
     calls = llm.calls
     st = run(store, llm)
-    assert st["written"] == 1 and llm.calls == calls                             # reused cached extraction
+    assert st["written"] == 1 and llm.calls == calls
 
 def test_crash_after_commit_before_state_is_recorded_without_rewrite(monkeypatch):
     triton_reel("A")
@@ -238,7 +230,7 @@ def test_neo4j_offline_still_fills_the_extraction_cache_then_catches_up():
     store.offline = True
     st = run(store, llm)
     assert not st["online"] and st["extracted"] == 1 and store.docs == {}
-    assert indexer.search("Triton", k=1)["results"][0]["reel_id"] == "A"      # semantic search unaffected
+    assert indexer.search("Triton", k=1)["results"][0]["reel_id"] == "A"
     store.offline = False
     calls = llm.calls
     st = run(store, llm)
@@ -255,12 +247,10 @@ def test_ineligible_reel_is_removed(monkeypatch):
     st = run(store, FakeLLM())
     assert st["removed"] == 1 and set(store.docs) == {"A"} and "B" not in gs.states()
 
-# ---------------------------------------------------------------- Chroma readiness
-
 def test_reel_awaits_the_index_then_is_promoted_without_llm():
     triton_reel("A")
     store, llm = FakeStore(), FakeLLM()
-    st = run(store, llm)                                          # no Chroma index yet
+    st = run(store, llm)
     assert st["awaiting_index"] == 1 and store.ready["A"] is False
     indexer.sync_all()
     calls, writes = llm.calls, store.writes
@@ -276,12 +266,12 @@ def test_ready_reel_is_demoted_when_chroma_is_unavailable_and_promoted_on_recove
     calls, writes = llm.calls, store.writes
     real_active, available = indexer.active_collection, {"on": False}
     monkeypatch.setattr(indexer, "active_collection", lambda: real_active() if available["on"] else None)
-    st = run(store, llm)                                                         # index unavailable
+    st = run(store, llm)
     assert st["demoted"] == 1 and store.ready["A"] is False and gs.states()["A"]["status"] == "awaiting_index"
-    available["on"] = True                                                       # index recovers
+    available["on"] = True
     st = run(store, llm)
     assert st["promoted"] == 1 and store.ready["A"] is True and gs.states()["A"]["status"] == "ready"
-    assert llm.calls == calls and store.writes == writes                       # no LLM, no rewrite
+    assert llm.calls == calls and store.writes == writes
 
 def test_ready_reel_is_demoted_when_its_chunks_go_missing():
     triton_reel("A")
@@ -303,12 +293,10 @@ def test_neo4j_drop_during_readiness_update_does_not_abort_sync(monkeypatch):
     store.fail_ready = True
     st = run(store, FakeLLM())
     assert not st["online"] and st["stopped"] is False and st["eligible"] == 2
-    assert {s["status"] for s in gs.states().values()} == {"ready"}             # unchanged; retried next sync
+    assert {s["status"] for s in gs.states().values()} == {"ready"}
     store.fail_ready = False
     st = run(store, FakeLLM())
     assert st["demoted"] == 2
-
-# ---------------------------------------------------------------- idle gating
 
 def test_manual_sync_during_capture_defers_extraction_unless_forced(monkeypatch):
     triton_reel("A")
@@ -320,11 +308,9 @@ def test_manual_sync_during_capture_defers_extraction_unless_forced(monkeypatch)
     import backend.graph.llm as llm_mod
     monkeypatch.setattr(llm_mod, "MlxLLM", lambda model_id=None: llm)
     st = gs.request_sync(wait=True)
-    assert st["deferred"] == 1 and llm.calls == 0                               # capture active: no LLM
+    assert st["deferred"] == 1 and llm.calls == 0
     st = gs.request_sync(force=True, wait=True)
     assert st["extracted"] == 1 and llm.calls == 1 and "A" in store.docs
-
-# ---------------------------------------------------------------- concurrency
 
 def test_only_one_sync_at_a_time_and_manual_wait_reports_busy(monkeypatch):
     triton_reel("A")
@@ -355,7 +341,7 @@ def test_queued_request_meeting_a_running_sync_is_retried_not_dropped(monkeypatc
     monkeypatch.setattr(gs, "extractor_version", lambda model_id=None: FakeLLM.version)
     import backend.graph.llm as llm_mod
     monkeypatch.setattr(llm_mod, "MlxLLM", lambda model_id=None: llm)
-    monkeypatch.setattr(gs, "POLL_S", 30)                                       # no polling rescue
+    monkeypatch.setattr(gs, "POLL_S", 30)
     monkeypatch.setattr(config, "GRAPH_AUTO", False)
     hold, inside = threading.Event(), threading.Event()
 
@@ -376,7 +362,7 @@ def test_queued_request_meeting_a_running_sync_is_retried_not_dropped(monkeypatc
                 break
             time.sleep(0.02)
         assert gs.request_status(rid)["status"] == "queued" and "already running" in gs.request_status(rid)["reason"]
-        hold.set()                                                               # running sync finishes → wakes loop
+        hold.set()
         t.join()
         for _ in range(200):
             if gs.request_status(rid)["status"] in ("done", "failed"):
@@ -386,10 +372,7 @@ def test_queued_request_meeting_a_running_sync_is_retried_not_dropped(monkeypatc
     finally:
         assert gs.stop()
 
-# ---------------------------------------------------------------- reviews
-
 def _the_assertion(store):
-    """The assertion whose evidence is the spoken passage (the caption states the same claim separately)."""
     (a,) = [x for x in store.docs["A"]["assertions"] if ":transcript:" in x["chunk_id"]]
     return a
 
@@ -403,7 +386,7 @@ def test_review_survives_reel_refresh():
     assert gs.states()["A"]["status"] == "stale"
     run(store, llm)
     assert _the_assertion(store)["status"] == "verified" and _the_assertion(store)["review_note"] == "checked"
-    triton_reel("A", extra="for GPU kernels")                                   # improved record, same claim
+    triton_reel("A", extra="for GPU kernels")
     indexer.sync_all()
     run(store, llm)
     assert _the_assertion(store)["status"] == "verified"
@@ -414,21 +397,21 @@ def test_review_during_sync_is_never_marked_synchronized(monkeypatch):
     store, llm = FakeStore(), FakeLLM()
     run(store, llm)
     a = _the_assertion(store)
-    triton_reel("A", extra="for GPU kernels")                                   # force a rewrite
+    triton_reel("A", extra="for GPU kernels")
     indexer.sync_all()
     real = gs.reviews_for
 
     def snapshot_then_review(ids):
-        out = real(ids)                                                        # sync takes its snapshot…
-        gs.put_review(a["subject"], a["predicate"], a["object"], a["chunk_id"], "reject", "wrong")  # …review lands
+        out = real(ids)
+        gs.put_review(a["subject"], a["predicate"], a["object"], a["chunk_id"], "reject", "wrong")
         return out
 
     monkeypatch.setattr(gs, "reviews_for", snapshot_then_review)
     st = run(store, llm)
     assert st["stale"] == 1 and st["ready"] == 0
     s = gs.states()["A"]
-    assert s["status"] == "stale" and s["graph_hash"] is None                  # not marked synchronized
-    assert _the_assertion(store)["status"] == "proposed"                       # graph has the pre-review doc
+    assert s["status"] == "stale" and s["graph_hash"] is None
+    assert _the_assertion(store)["status"] == "proposed"
     monkeypatch.setattr(gs, "reviews_for", real)
     run(store, llm)
     assert _the_assertion(store)["status"] == "rejected" and gs.states()["A"]["status"] == "ready"
@@ -460,10 +443,7 @@ def test_owner_of_chunk_ids():
     with pytest.raises(ValueError):
         gs.put_review("x", "USES", "y", "no-format", "accept", None)
 
-# ---------------------------------------------------------------- extractor versions, recovery, no needless re-extraction
-
 class NewLLM(FakeLLM):
-    """A newer extractor whose only change is failure recovery: accepts FakeLLM's successful proposals."""
     version = "x-fake-2"
     compatible_versions = ["x-fake-1"]
 
@@ -484,20 +464,20 @@ def test_compatible_proposals_are_reused_under_their_own_label_without_the_llm(m
     run(store, FakeLLM())
     new = NewLLM()
     st = run(store, new)
-    assert (st["skipped"], st["extracted"], new.calls) == (2, 0, 0)               # nothing re-run, nothing rewritten
-    monkeypatch.setattr(ex, "GROUNDING_RULES", "g-test")                           # grounding changes → re-ground only
+    assert (st["skipped"], st["extracted"], new.calls) == (2, 0, 0)
+    monkeypatch.setattr(ex, "GROUNDING_RULES", "g-test")
     st = run(store, new)
     assert (st["from_cache"], st["extracted"], st["written"], new.calls) == (2, 0, 2, 0)
-    for rid in ("A", "B"):                                                         # provenance is not relabelled
+    for rid in ("A", "B"):
         doc = store.docs[rid]
         assert doc["reel"]["extractor_version"] == "x-fake-1"
         assert {m["extractor_version"] for m in doc["mentions"]} == {"x-fake-1"}
         assert {a["extractor_version"] for a in doc["assertions"]} == {"x-fake-1"}
         assert gs.states()[rid]["extractor_version"] == "x-fake-1"
-    assert _cache_rows() == [("A", "x-fake-1", "ok"), ("B", "x-fake-1", "ok")]       # no copies under a new label
+    assert _cache_rows() == [("A", "x-fake-1", "ok"), ("B", "x-fake-1", "ok")]
     other = IncompatibleLLM()
     st = run(store, other)
-    assert st["extracted"] == 2 and other.calls == 2                               # incompatible → re-extracted
+    assert st["extracted"] == 2 and other.calls == 2
     assert store.docs["A"]["reel"]["extractor_version"] == "x-fake-3"
 
 def test_only_failed_reels_are_re_extracted_and_a_second_sync_extracts_nothing():
@@ -509,7 +489,7 @@ def test_only_failed_reels_are_re_extracted_and_a_second_sync_extracts_nothing()
 
     def counted(system, user, max_tokens=0):
         calls["n"] += 1
-        if calls["n"] >= 3:                                                        # third Reel: truncated twice
+        if calls["n"] >= 3:
             return '{"c":[', {"finish_reason": "length"}
         return real(system, user, max_tokens)
     old.generate = counted
@@ -518,10 +498,10 @@ def test_only_failed_reels_are_re_extracted_and_a_second_sync_extracts_nothing()
     failed = next(r for r, s in gs.states().items() if s["status"] == "error")
     new = NewLLM()
     st = run(store, new)
-    assert (st["extracted"], st["from_cache"], st["skipped"], new.calls) == (1, 0, 2, 1)   # only the failed Reel
+    assert (st["extracted"], st["from_cache"], st["skipped"], new.calls) == (1, 0, 2, 1)
     assert gs.states()[failed]["extractor_version"] == "x-fake-2"
     st = run(store, new)
-    assert (st["extracted"], st["skipped"], new.calls) == (0, 3, 1)                # steady state: no LLM at all
+    assert (st["extracted"], st["skipped"], new.calls) == (0, 3, 1)
 
 def test_deterministic_extraction_failure_is_not_retried_automatically():
     from backend.graph.extract import ExtractionError
@@ -532,7 +512,7 @@ def test_deterministic_extraction_failure_is_not_retried_automatically():
     assert run(store, llm)["extract_errors"] == 1 and llm.calls == 1
     llm.fail = None
     st = run(store, llm)
-    assert (st["not_retried"], st["extracted"], llm.calls) == (1, 0, 1)            # same input → same output: skip
+    assert (st["not_retried"], st["extracted"], llm.calls) == (1, 0, 1)
     assert "retry with force" in gs.states()["A"]["error"]
     st = run(store, llm, force=True)
     assert st["extracted"] == 1 and gs.states()["A"]["status"] == "ready"

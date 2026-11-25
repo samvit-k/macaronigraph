@@ -1,6 +1,4 @@
-// Floating evidence inspector (SanD Hacks layout: card on the right of the canvas, bottom sheet on narrow screens).
-// Original source text is always shown as a quotation with its evidence type (transcript / caption / on-screen text)
-// and a link to the Reel; anything the model produced is labelled as such.
+// Evidence inspector: source passages as quotations with their evidence type and a link to the Reel.
 import { useEffect, useState } from 'react'
 import { conceptId, nodeLabel, reelId } from '../../graph/toElements.js'
 import { conceptType, contentType, EDGE_KINDS, isOcr, predicateLabel, timestamp } from '../../graph/vocab.js'
@@ -212,7 +210,6 @@ function AssertionView({ id, model, onSelect }) {
   )
 }
 
-/** A citation from a chat answer: the exact source passage the answer cited. */
 function SourceView({ sel, onSelect, graphReady }) {
   const { source, citation } = sel
   const rid = citation?.reel_id ?? source?.reel_id

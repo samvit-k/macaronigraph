@@ -1,5 +1,4 @@
-// Collapsible legend card (SanD Hacks pattern: bottom-left card that collapses to a pill, and tells the canvas to
-// refit around it). Content: MacaroniGraph's node kinds and the four edge kinds.
+// Collapsible legend of node and edge kinds; the canvas refits around it.
 import { useEffect, useRef, useState } from 'react'
 import { LEGEND_EVENT } from '../graph/viewport.js'
 import { CONCEPT_ORDER, CONCEPT_TYPES, EDGE_KINDS, EDGE_ORDER, REEL } from '../graph/vocab.js'

@@ -1,5 +1,4 @@
-// Confirmation for a permanent action (adapted from SanD Hacks): consequences stated exactly, runs only after an
-// explicit click, errors shown in place and never retried silently.
+// Confirmation for a permanent action: runs only after an explicit click; errors are shown and never retried silently.
 import { useEffect, useRef, useState } from 'react'
 
 export default function ConfirmDialog({ title, children, confirmLabel, busyLabel = 'Working…', onConfirm, onCancel }) {

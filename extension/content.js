@@ -1,6 +1,4 @@
-// Injected into the worker tab on each page. Exposes window.__reelCap; called via chrome.scripting.
-// It only reads the page and controls the <video> element the user could control themselves.
-// It never logs in, dismisses login walls, or works around access restrictions.
+// Injected into the worker tab: reads the page and controls only its <video>; never logs in or works around access restrictions.
 (() => {
   if (window.__reelCap) return;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -31,8 +29,8 @@
     return best;
   }
 
-  // The site's audio toggle closest to this video (walks up the video's ancestors, so a toggle belonging
-  // to another reel in a feed is never chosen). Matches Instagram's labels; harmless elsewhere.
+  // Walks up the video's ancestors, so another Reel's sound toggle in a feed is never chosen.
+
   const SOUND_RE = /audio is muted|toggle audio|unmute|sound off|turn on sound/i;
   function findSoundToggle(v) {
     let node = v.parentElement;
@@ -53,8 +51,8 @@
       return { w: innerWidth, h: innerHeight, dpr: devicePixelRatio };
     },
 
-    // Show an in-page Start button. Chrome only permits unmuted playback after a real user click
-    // in the page; the click is reported (with isTrusted) and the session starts from it.
+    // Chrome permits unmuted playback only after a real click in the page; the session starts from that click.
+
     arm() {
       document.getElementById("__reelcap_arm")?.remove();
       const b = document.createElement("button");
@@ -76,7 +74,7 @@
       return true;
     },
 
-    // Renderer-initiated same-origin navigation: lets Chrome carry the page's user activation forward.
+    // Renderer-initiated same-origin navigation lets Chrome carry the page's user activation forward.
     navigateTo(url) {
       setTimeout(() => location.assign(url), 0);
       return true;
@@ -84,7 +82,6 @@
 
     activation,
 
-    // Find the main video, rewind it, and leave it paused for the recorder to start first.
     async prepare(timeoutMs = 15000) {
       const t0 = Date.now();
       let v = null;
@@ -109,7 +106,7 @@
       };
     },
 
-    // Start playback with sound. If the browser's autoplay policy refuses, report it; no workaround.
+    // If the browser's autoplay policy refuses unmuted playback, report it; no workaround.
     async play() {
       const v = window.__reelCapVideo;
       if (!v || !v.isConnected) return { status: "no_video", detail: "video element disappeared" };
@@ -126,12 +123,12 @@
       if (v.currentTime <= start) return { status: "playback_blocked", detail: "playback not progressing" };
       let unmute = v.muted ? "failed" : "direct";
       if (v.muted) {
-        // The site re-muted it via its own player state: press the site's own sound toggle for THIS video.
+        // The site re-muted it via its own player state: press its own sound toggle for this video.
         const toggle = findSoundToggle(v);
         if (toggle) {
           toggle.click();
           await sleep(800);
-          if (v.muted) { v.muted = false; await sleep(300); }  // some players only flip their state
+          if (v.muted) { v.muted = false; await sleep(300); }
           unmute = v.muted ? "failed" : "site_toggle";
           if (!v.muted) { v.currentTime = 0; await sleep(250); }  // don't lose the muted first ~1.5 s
         } else {

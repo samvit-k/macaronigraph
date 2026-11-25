@@ -1,14 +1,4 @@
-"""Neo4j graph store (optional). Every Reel is written in ONE transaction that replaces only what the Reel owns
-(its Passages and Assertions) and garbage-collects only its previous concepts that nothing references any
-more — concepts shared with other Reels survive. A failed transaction rolls back: the previous graph stays.
-
-Schema
-  (:Reel {reel_id})-[:HAS_PASSAGE]->(:Passage {chunk_id = Chroma id})-[:MENTIONS {surface, method}]->(:Concept {key})
-  (:Assertion {id})-[:SUBJECT]->(:Concept), -[:OBJECT]->(:Concept), -[:EVIDENCE]->(:Passage)
-Assertion.status is "proposed" (model-extracted, quote verified) unless a human review (kept in SQLite and
-re-applied by the sync layer on every rewrite) set "verified" / "rejected". "corroborated" (same
-subject-predicate-object proposed in ≥2 Reels) is computed at query time. Co-occurrence is never stored.
-"""
+"""Neo4j store (optional): each Reel is written in one transaction that replaces only what that Reel owns."""
 from __future__ import annotations
 
 import threading
@@ -37,7 +27,6 @@ def _prev_keys(tx, rid: str) -> list[str]:
     return [r["k"] for r in rows]
 
 def _gc_and_refresh(tx, keys: list[str]) -> None:
-    """Delete the given concepts if nothing references them; refresh aliases of the rest from MENTIONS."""
     tx.run("""UNWIND $keys AS k MATCH (c:Concept {key: k})
               WHERE NOT (c)<-[:MENTIONS]-() AND NOT (c)<-[:SUBJECT|OBJECT]-()
               DETACH DELETE c""", keys=keys)
@@ -51,7 +40,6 @@ def _delete_owned(tx, rid: str) -> None:
     tx.run("MATCH (p:Passage {reel_id: $rid}) DETACH DELETE p", rid=rid)
 
 def write_reel_tx(tx, doc: dict) -> None:
-    """doc: {reel, passages, concepts, mentions, assertions, graph_hash, retrieval_ready}"""
     rid = doc["reel"]["reel_id"]
     prev = _prev_keys(tx, rid)
     _delete_owned(tx, rid)
@@ -75,7 +63,7 @@ def write_reel_tx(tx, doc: dict) -> None:
               CREATE (x)-[:SUBJECT]->(s) CREATE (x)-[:OBJECT]->(o) CREATE (x)-[:EVIDENCE]->(p)""",
            assertions=doc["assertions"])
     _gc_and_refresh(tx, sorted(set(prev) | {c["key"] for c in doc["concepts"]}))
-    tx.run("MATCH (r:Reel {reel_id: $rid}) SET r.graph_hash = $h, r.retrieval_ready = $ready",   # last
+    tx.run("MATCH (r:Reel {reel_id: $rid}) SET r.graph_hash = $h, r.retrieval_ready = $ready",
            rid=rid, h=doc["graph_hash"], ready=doc["retrieval_ready"])
 
 def remove_reel_tx(tx, rid: str) -> None:
@@ -105,10 +93,10 @@ class Neo4jStore:
                 try:
                     d = GraphDatabase.driver(self.uri, auth=(self.user, self.password), connection_timeout=5)
                     d.verify_connectivity()
-                except Exception as e:  # noqa: BLE001 — server down, bad credentials, ...
+                except Exception as e:  # noqa: BLE001
                     if d is not None:
                         try:
-                            d.close()                       # never leak a half-initialised driver
+                            d.close()  # never leak a half-initialised driver
                         except Exception:  # noqa: BLE001
                             pass
                     raise GraphOffline(f"Neo4j unavailable at {self.uri}: {type(e).__name__}: {e}") from e
@@ -149,7 +137,6 @@ class Neo4jStore:
                 raise GraphOffline(str(e)) from e
             raise
 
-    # ---- interface used by sync ----
     def ensure_schema(self) -> None:
         for stmt in SCHEMA:
             self.run(stmt)

@@ -1,6 +1,4 @@
-"""Phase 3 incremental indexing: new / unchanged / improved / failed Reels, crash safety, orphans, error
-preservation, idle gating, interruption, verified rebuilds, retirement of replaced collections, and
-writer-lock shutdown safety. Everything runs in a temp OUTPUT_DIR with a deterministic hashing embedder."""
+"""Incremental indexing: new, unchanged, improved and failed Reels, crash safety, orphans and rebuilds."""
 import fcntl
 import io
 import threading
@@ -26,7 +24,6 @@ def idx(isolated_output, monkeypatch):
 _n = {"i": 0}
 
 def add(rid, words="sourdough bread baking", status="ok", ocr=None, extra_transcript=""):
-    """Persist an attempt exactly as the worker does (jobs.record_attempt); a new session per attempt."""
     _n["i"] += 1
     tr = [seg(0, 4, f"{words}. {extra_transcript}".strip())] if status != "failed" else []
     rec = make_record(tr, ocr or [], rid=rid, status=status, caption=f"About {words} #tips")
@@ -44,8 +41,6 @@ def active_col():
 
 def ids_for(col, rid):
     return sorted(col.get(where={"reel_id": rid}, include=[])["ids"])
-
-# ---------------------------------------------------------------- basic incremental behaviour
 
 def test_new_reels_are_indexed_and_searchable():
     add("A", "sourdough bread baking")
@@ -81,7 +76,7 @@ def test_improved_canonical_record_replaces_chunks_and_removes_obsolete_ids():
     col = active_col()
     assert "A:ocr:001" in ids_for(col, "A")
     r = add("A", "sourdough", ocr=[oseg(1, 2, "New single screen with a much longer description")])
-    assert r["canonical_attempt_id"] == r["attempt_id"]          # the better attempt became canonical
+    assert r["canonical_attempt_id"] == r["attempt_id"]
     out = indexer.sync_all()
     assert out["active"]["embedded"] == 1
     after = ids_for(col, "A")
@@ -119,8 +114,6 @@ def test_reel_processed_by_the_worker_is_picked_up_by_the_next_sync(monkeypatch)
     assert out["active"]["embedded"] == 1
     assert indexer.search("lidar point cloud", k=1)["results"][0]["reel_id"] == "W1"
 
-# ---------------------------------------------------------------- crash safety / orphans / errors
-
 def test_crash_between_upsert_and_state_commit_leaves_no_duplicates(monkeypatch):
     add("A", ocr=[oseg(1, 2, "Screen")])
     add("B", "python asyncio")
@@ -136,9 +129,9 @@ def test_crash_between_upsert_and_state_commit_leaves_no_duplicates(monkeypatch)
     monkeypatch.setattr(indexer, "_write_state", flaky)
     with pytest.raises(RuntimeError):
         indexer.sync_all()
-    assert indexer.active_collection() is None                    # nothing half-built is ever active
+    assert indexer.active_collection() is None
     monkeypatch.setattr(indexer, "_write_state", real)
-    out = indexer.sync_all()                                      # resumes the same build
+    out = indexer.sync_all()
     assert out["build"]["state"] == "activated"
     v = indexer.verify(indexer.active_collection())
     assert v["ok"] and v["counts"]["chunks"] == v["counts"]["expected_chunks"] == active_col().count()
@@ -152,7 +145,7 @@ def test_orphan_reel_chunks_are_swept_even_when_nothing_needs_reembedding():
     assert not indexer.verify(indexer.active_collection())["ok"]
     calls = emb().calls
     out = indexer.sync_all()
-    assert out["active"]["embedded"] == 0 and emb().calls == calls        # no re-embedding needed
+    assert out["active"]["embedded"] == 0 and emb().calls == calls
     assert out["active"]["orphans_deleted"] == 1 and ids_for(col, "GHOST") == []
     assert indexer.verify(indexer.active_collection())["ok"]
 
@@ -177,16 +170,16 @@ def test_failed_reindex_preserves_previous_embeddings(monkeypatch):
     real = e.encode_docs
     monkeypatch.setattr(e, "encode_docs", lambda texts: (_ for _ in ()).throw(RuntimeError("MPS out of memory")))
     out = indexer.sync_all()
-    assert out["active"]["errors"] == 1 and not out["active"]["stopped"]  # completed sync → sweep ran
+    assert out["active"]["errors"] == 1 and not out["active"]["stopped"]
     after = {i: d for i, d in zip(*[col.get(where={"reel_id": "A"})[k] for k in ("ids", "documents")])}
-    assert after == before                                        # last good chunks kept, untouched
+    assert after == before
     assert indexer.search("sourdough starter", k=1)["results"][0]["reel_id"] == "A"
     row = indexer.state_rows(indexer.active_collection())["A"]
     assert row["status"] == "error" and "MPS out of memory" in row["error"]
     assert indexer.status()["errors"] == 1
-    assert not indexer.verify(indexer.active_collection())["ok"]  # strict: the error is visible
+    assert not indexer.verify(indexer.active_collection())["ok"]
     monkeypatch.setattr(e, "encode_docs", real)
-    out = indexer.sync_all()                                      # retried and repaired
+    out = indexer.sync_all()
     assert out["active"]["embedded"] == 1 and indexer.status()["errors"] == 0
     assert indexer.verify(indexer.active_collection())["ok"]
 
@@ -209,25 +202,23 @@ def test_indexing_error_blocks_activation_of_a_rebuild(monkeypatch):
     assert indexer.active_collection() == old
     assert any("indexing errors" in p for p in out["build"]["verification"]["problems"])
 
-# ---------------------------------------------------------------- interruption
-
 def test_stopping_before_a_batch_embeds_nothing_and_commits_nothing(monkeypatch):
     for r in "ABC":
         add(r, f"topic {r}")
-    monkeypatch.setattr(indexer, "EMBED_BATCH_CHUNKS", 10_000)    # everything would go in one final batch
-    checks = iter([True, True, True])                             # idle for the 3 Reel checks, then busy
+    monkeypatch.setattr(indexer, "EMBED_BATCH_CHUNKS", 10_000)
+    checks = iter([True, True, True])
     out = indexer.sync_all(should_continue=lambda: next(checks, False))
     assert out["build"]["state"] == "paused"
-    assert emb().calls == 0                                       # no embedding batch after the failed check
+    assert emb().calls == 0
     assert indexer.state_rows(out["build"]["collection"]) == {}
-    out = indexer.sync_all()                                      # resumes on the next sync
+    out = indexer.sync_all()
     assert out["build"]["state"] == "activated" and indexer.status()["indexed"] == 3
 
 def test_stopping_mid_sync_keeps_committed_reels_and_resumes_the_rest(monkeypatch):
     for r in "ABC":
         add(r, f"topic {r}")
-    monkeypatch.setattr(indexer, "EMBED_BATCH_CHUNKS", 1)        # flush after every Reel
-    checks = iter([True, True])                                  # reel A: loop check + flush check
+    monkeypatch.setattr(indexer, "EMBED_BATCH_CHUNKS", 1)
+    checks = iter([True, True])
     out = indexer.sync_all(should_continue=lambda: next(checks, False))
     coll = out["build"]["collection"]
     assert out["build"]["state"] == "paused" and emb().calls == 1
@@ -235,12 +226,12 @@ def test_stopping_mid_sync_keeps_committed_reels_and_resumes_the_rest(monkeypatc
     calls = emb().calls
     out = indexer.sync_all()
     assert out["build"]["state"] == "activated" and out["build"]["collection"] == coll
-    assert emb().calls == calls + 2                               # only B and C embedded on resume
+    assert emb().calls == calls + 2
 
 def test_capture_starting_mid_sync_stops_before_the_next_embedding(monkeypatch):
     for r in "ABC":
         add(r, f"topic {r}")
-    indexer.sync_all()                                            # baseline index
+    indexer.sync_all()
     for r in "DEF":
         add(r, f"new topic {r}")
     monkeypatch.setattr(indexer, "EMBED_BATCH_CHUNKS", 1)
@@ -249,17 +240,15 @@ def test_capture_starting_mid_sync_stops_before_the_next_embedding(monkeypatch):
 
     def load(aid):
         seen.append(aid)
-        if len(seen) == 2:                                        # the user presses Start during the sync
+        if len(seen) == 2:
             jobs.create_session("instagram-live", "instagram", 0)
         return real_load(aid)
 
     monkeypatch.setattr(indexer, "load_record", load)
     calls = emb().calls
     out = indexer.sync_all(should_continue=lambda: indexer.busy_reason() is None)
-    assert out["active"]["stopped"] and emb().calls == calls + 1  # D committed; nothing embedded after Start
+    assert out["active"]["stopped"] and emb().calls == calls + 1
     assert indexer.status()["indexed"] == 4
-
-# ---------------------------------------------------------------- idle gate
 
 def test_busy_reason_covers_sessions_spool_and_quiet_period():
     add("A")
@@ -267,10 +256,10 @@ def test_busy_reason_covers_sessions_spool_and_quiet_period():
     jobs.create_session("instagram-x", "instagram", 0, now=now)
     assert "capture session" in indexer.busy_reason(now=now)
     jobs.finish_session("instagram-x")
-    assert indexer.busy_reason() is None                          # no quiet period requested (between batches)
+    assert indexer.busy_reason() is None
     assert "quiet period" in indexer.busy_reason(quiet_s=120)
     assert indexer.busy_reason(quiet_s=120, now=time.time() + 121) is None
-    (worker.spool_dir() / ".incoming-x").mkdir(parents=True)     # an upload in progress
+    (worker.spool_dir() / ".incoming-x").mkdir(parents=True)
     assert "processing" in indexer.busy_reason(now=time.time() + 999)
 
 def test_auto_loop_waits_for_idle_but_manual_sync_always_runs(monkeypatch):
@@ -282,7 +271,7 @@ def test_auto_loop_waits_for_idle_but_manual_sync_always_runs(monkeypatch):
     try:
         time.sleep(0.4)
         assert indexer.active_collection() is None and "capture session" in (indexer._state["busy"] or "")
-        assert indexer.request_sync()["accepted"]                 # manual sync is always allowed
+        assert indexer.request_sync()["accepted"]
         for _ in range(100):
             if indexer.active_collection():
                 break
@@ -290,8 +279,6 @@ def test_auto_loop_waits_for_idle_but_manual_sync_always_runs(monkeypatch):
         assert indexer.active_collection() is not None
     finally:
         assert indexer.stop()
-
-# ---------------------------------------------------------------- verified rebuilds
 
 def test_rebuild_catches_reels_processed_during_the_rebuild(monkeypatch):
     add("A")
@@ -301,7 +288,7 @@ def test_rebuild_catches_reels_processed_during_the_rebuild(monkeypatch):
 
     def sync_and_add(coll, should_continue=None):
         st = real(coll, should_continue)
-        if not once["done"]:                                      # the worker stores a new Reel meanwhile
+        if not once["done"]:
             once["done"] = True
             add("C", "robot gripper")
         return st
@@ -320,7 +307,7 @@ def test_failed_verification_keeps_previous_index_active(monkeypatch):
 
     def sync_and_corrupt(coll, should_continue=None):
         st = real(coll, should_continue)
-        if coll != old:                                           # an orphan appears in the new collection
+        if coll != old:
             indexer.get_collection(coll).upsert(ids=["GHOST:ocr:000"], embeddings=[[0.1] * 64], documents=["x"],
                                                 metadatas=[{"reel_id": "GHOST"}])
         return st
@@ -328,11 +315,11 @@ def test_failed_verification_keeps_previous_index_active(monkeypatch):
     monkeypatch.setattr(indexer, "sync_collection", sync_and_corrupt)
     out = indexer.sync_all(rebuild=True)
     assert out["build"]["state"] == "failed_verification"
-    assert indexer.active_collection() == old                    # still serving
+    assert indexer.active_collection() == old
     assert indexer.search("sourdough", k=1)["results"][0]["reel_id"] == "A"
     assert indexer.status()["build"]["state"] == "failed_verification"
     monkeypatch.setattr(indexer, "sync_collection", real)
-    out = indexer.sync_all()                                      # the pending build resumes, repairs, passes
+    out = indexer.sync_all()
     assert out["build"]["state"] == "activated" and indexer.active_collection() != old
 
 def test_signature_change_builds_new_collection_while_old_stays_active(monkeypatch):
@@ -342,34 +329,30 @@ def test_signature_change_builds_new_collection_while_old_stays_active(monkeypat
     old = indexer.active_collection()
     monkeypatch.setattr(embedder, "current_spec", lambda model_id=None: embedder.HashEmbedder(dim=32).spec)
     monkeypatch.setattr(indexer, "EMBED_BATCH_CHUNKS", 1)
-    checks = iter([True, True, True])                             # active: A, B checks; build: first Reel only
+    checks = iter([True, True, True])
     out = indexer.sync_all(should_continue=lambda: next(checks, False))
     assert out["build"]["state"] == "paused"
-    assert indexer.active_collection() == old                    # search unaffected during the rebuild
+    assert indexer.active_collection() == old
     assert indexer.search("python", k=1)["results"][0]["reel_id"] == "B"
     out = indexer.sync_all()
     new = indexer.active_collection()
     assert out["build"]["state"] == "activated" and new != old
     assert indexer.spec_of(indexer.get_collection(new))["dim"] == 32
-    assert old in indexer.collections()                          # retired, not dropped yet (grace period)
-
-# ---------------------------------------------------------------- retirement of replaced collections
+    assert old in indexer.collections()
 
 def test_replaced_collection_is_not_dropped_while_a_search_uses_it():
     add("A")
     indexer.sync_all()
     old = indexer.active_collection()
-    with indexer.reading() as pinned:                             # a search is in progress on the old index
+    with indexer.reading() as pinned:
         assert pinned == old
-        out = indexer.sync_all(rebuild=True)                      # swap happens meanwhile
+        out = indexer.sync_all(rebuild=True)
         assert out["build"]["state"] == "activated" and indexer.active_collection() != old
         assert indexer.cleanup_retired(now=time.time() + 10 * indexer.RETIRE_GRACE_S) == []
-        assert indexer.get_collection(old).count() > 0            # still fully readable
-    assert indexer.cleanup_retired(now=time.time()) == []         # grace period not over (other processes)
+        assert indexer.get_collection(old).count() > 0
+    assert indexer.cleanup_retired(now=time.time()) == []
     assert indexer.cleanup_retired(now=time.time() + indexer.RETIRE_GRACE_S + 1) == [old]
     assert old not in indexer.collections() and indexer.state_rows(old) == {}
-
-# ---------------------------------------------------------------- writer lock on shutdown
 
 def _other_process_can_lock() -> bool:
     fd = open(config.chroma_dir() / ".writer.lock", "a+")
@@ -397,9 +380,9 @@ def test_stop_keeps_writer_lock_while_indexer_thread_is_still_writing(monkeypatc
     assert inside.wait(2)
     monkeypatch.setattr(indexer, "_thread", t)
     monkeypatch.setattr(indexer, "STOP_JOIN_S", 0.1)
-    assert indexer.stop() is False                                # join timed out
+    assert indexer.stop() is False
     assert indexer.holds_writer() and not _other_process_can_lock()
-    assert indexer.release_writer() is False                      # cannot be released under a running write
+    assert indexer.release_writer() is False
     release.set()
     t.join()
     assert indexer.stop() is True
@@ -410,8 +393,6 @@ def test_second_writer_is_refused_while_lock_is_held():
     assert not _other_process_can_lock()
     assert indexer.release_writer()
     assert _other_process_can_lock()
-
-# ---------------------------------------------------------------- search behaviour
 
 def test_fragments_are_findable_but_down_weighted():
     add("A", "cooking", ocr=[oseg(1, 2, "zebra", quality="fragment")])

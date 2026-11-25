@@ -1,17 +1,7 @@
 #!/usr/bin/env bash
-# Project-local Neo4j Community (GPLv3) for the Phase 4 knowledge graph. No sudo, nothing system-wide.
-#   scripts/neo4j.sh install   download + sha256-verify into .tools/neo4j, write config, first-time credentials
-#   scripts/neo4j.sh [status]|start|stop|restart|console
-# Binary: .tools/neo4j   Config: .tools/neo4j-conf   Data/logs: output/neo4j (derived, rebuildable from SQLite)
-# Listens on 127.0.0.1 only, on non-default ports (bolt 7697, http 7484) so it cannot clash with other projects.
-#
-# Credentials (.env.local, mode 600) are created ONCE, before the database is initialized, and never regenerated:
-#   db not initialized, no credentials     → generate password, write .env.local, then set it as initial password
-#   db not initialized, credentials exist  → reuse them (e.g. a previous install was interrupted)
-#   db initialized,     credentials exist  → nothing to do
-#   db initialized,     credentials absent → stop with instructions (never overwrite; data would be inaccessible)
-#   credentials partially present          → stop and name the missing keys
-# Paths can be overridden (NEO4J_HOME_DIR, NEO4J_CONF_DIR, NEO4J_DATA_DIR, NEO4J_ENV_FILE) — used by the tests.
+# Project-local Neo4j Community (GPLv3) on 127.0.0.1 only (bolt 7697, http 7484); data in output/neo4j.
+#   scripts/neo4j.sh install | [status] | start | stop | restart | console
+# Credentials (.env.local, mode 600) are created once, before the database is initialized, and never regenerated.
 set -euo pipefail
 
 CMD="${1:-status}"
@@ -39,7 +29,7 @@ gen_password() {   # 32 hex chars from the OS CSPRNG; no pipeline, so no SIGPIPE
   printf '%s' "$pw"
 }
 
-env_value() {      # env_value KEY → value from ENV_FILE (empty if absent)
+env_value() {
   [[ -f "$ENV_FILE" ]] || return 0
   local line
   line="$(grep -E "^$1=" "$ENV_FILE" | tail -n 1 || true)"
@@ -92,7 +82,7 @@ dbms.usage_report.enabled=false
 EOF
 }
 
-write_credentials() {  # append the 3 keys atomically (temp file + mv), preserving other lines; mode 600
+write_credentials() {  # atomic (temp file + mv), other lines kept, mode 600
   local pw="$1" tmp
   tmp="$(mktemp "$ENV_FILE.tmp.XXXX")"
   chmod 600 "$tmp"

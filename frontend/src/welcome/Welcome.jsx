@@ -1,7 +1,4 @@
-// Local welcome page (served by the backend at /welcome). Layout inspired by the BioOKF landing hero — centred,
-// large headline with one coloured phrase, dotted background, one restrained glow, two actions — re-implemented
-// here in MacaroniGraph's own identity. Every control works: the download is built by the backend from an explicit
-// allowlist of extension files, and the workspace link opens this backend's workspace.
+// Local welcome page: extension download and setup steps.
 import { useEffect, useState } from 'react'
 
 export const STEPS = [

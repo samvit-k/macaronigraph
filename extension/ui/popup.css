@@ -1,5 +1,4 @@
-/* MacaroniGraph popup — original styles. Flat sections separated by hairlines (no nested cards),
-   one accent colour, system light/dark, subtle motion that respects reduced-motion. */
+/* Extension popup styles: system light and dark themes, one accent colour. */
 :root {
   --bg: #f6f7f9;
   --surface: #ffffff;
@@ -48,7 +47,6 @@ body {
 button, input { font: inherit; color: inherit; }
 [hidden] { display: none !important; }
 
-/* header */
 .top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
 .brand { display: flex; align-items: center; gap: 9px; font-size: 15px; font-weight: 600; letter-spacing: -.01em; }
 .logo { width: 26px; height: 26px; border-radius: 7px; }
@@ -60,16 +58,13 @@ button, input { font: inherit; color: inherit; }
 .status.bad .dot { background: var(--failed); }
 .status.bad { color: var(--failed); }
 
-/* sections */
 section { padding: 12px 0 14px; border-top: 1px solid var(--line); }
 h2 { display: flex; align-items: center; gap: 7px; margin: 0 0 8px; color: var(--muted);
      font-size: 10.5px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; }
 
-/* library: 50/50 split — headline + timeline left, category values stacked right */
 .split { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: stretch; }
 .split-left { display: flex; flex-direction: column; justify-content: center; min-width: 0; }
-/* one row: "59/825" large + "Processed", both white + bold. Sized so the widest case
-   (825/825 Processed ≈ 163px) still fits the 166px left half on one line. */
+
 .tally { display: flex; align-items: baseline; white-space: nowrap; margin-bottom: 14px;
          color: var(--text); font-weight: 650; letter-spacing: -.03em; line-height: 1.1; }
 .tally .big, .tally .slash { font-size: 24px; font-weight: inherit; color: inherit; letter-spacing: inherit; }
@@ -96,7 +91,6 @@ h2 { display: flex; align-items: center; gap: 7px; margin: 0 0 8px; color: var(-
 .note { margin: 10px 0 0; color: var(--muted); font-size: 11.5px; }
 .note:empty { display: none; }
 
-/* controls */
 .control { margin-bottom: 10px; }
 .control.row { display: grid; grid-template-columns: 74px 1fr; align-items: center; gap: 10px; }
 .control.row .label { margin: 0; }
@@ -119,7 +113,6 @@ h2 { display: flex; align-items: center; gap: 7px; margin: 0 0 8px; color: var(-
 input[type=number]::-webkit-inner-spin-button { display: none; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-/* primary action */
 .primary { width: 100%; height: 42px; margin-top: 2px; border: 0; border-radius: var(--radius);
            background: var(--accent); color: #fff; font-size: 14px; font-weight: 600; cursor: pointer;
            transition: transform .2s var(--ease), filter .2s var(--ease), opacity .2s; }
@@ -131,7 +124,6 @@ input[type=number]::-webkit-inner-spin-button { display: none; }
 .hint.error { white-space: normal; }
 .hint.error { color: var(--failed); }
 
-/* running */
 .running h2 { color: var(--accent); }
 .pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); animation: pulse 1.6s var(--ease) infinite; }
 @keyframes pulse { 0% { box-shadow: 0 0 0 0 var(--accent-soft), 0 0 0 0 var(--accent); }
@@ -143,7 +135,6 @@ input[type=number]::-webkit-inner-spin-button { display: none; }
 .stop:hover { border-color: var(--failed); color: var(--failed); }
 .stop:disabled { opacity: .45; cursor: default; }
 
-/* folds (activity, advanced) */
 .fold { border-top: 1px solid var(--line); }
 .fold summary { display: flex; align-items: center; justify-content: space-between; padding: 9px 0; cursor: pointer;
                 color: var(--muted); font-size: 12px; font-weight: 500; list-style: none; user-select: none; }
@@ -157,7 +148,6 @@ input[type=number]::-webkit-inner-spin-button { display: none; }
 .check { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; cursor: pointer; }
 .check input { accent-color: var(--accent); }
 
-/* activity log */
 .log { list-style: none; margin: 0 0 8px; padding: 0; max-height: 168px; overflow: auto; overscroll-behavior: contain;
        font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .log li { display: grid; grid-template-columns: 52px 14px 1fr; gap: 6px; padding: 4px 0; border-top: 1px solid var(--line); }
@@ -171,7 +161,6 @@ input[type=number]::-webkit-inner-spin-button { display: none; }
 .mark.info { color: var(--accent); }
 .log .empty { display: block; color: var(--muted); font-style: italic; font-family: inherit; }
 
-/* motion */
 .enter { animation: enter .45s var(--ease) both; animation-delay: calc(var(--order, 0) * 55ms); }
 @keyframes enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) {

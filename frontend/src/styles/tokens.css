@@ -1,6 +1,4 @@
-/* MacaroniGraph design tokens. Layout and interaction patterns come from the SanD Hacks frontend; the identity is
-   MacaroniGraph's own: the extension popup's neutral surfaces and indigo accent, plus a warm "macaroni" highlight
-   used sparingly (welcome glow, answer highlights). Hairlines over heavy shadow; no decorative gradients in the app. */
+/* Design tokens; the graph colours are mirrored in src/graph/vocab.js. */
 :root {
   --bg: #fafafa;
   --bg-elev: #ffffff;
@@ -30,7 +28,6 @@
   --warn-bg: #fff8ec;
   --warn-line: rgba(168, 103, 13, 0.28);
 
-  /* graph vocabulary (mirrored in src/graph/vocab.js for Cytoscape, which cannot read CSS variables) */
   --c-reel: #7b76e0;
   --c-concept: #3a8f86;
   --c-method: #b7791f;

@@ -1,4 +1,4 @@
-"""scripts/data_digest.py — read-only, fail-closed integrity digest. Temporary fixtures only."""
+"""scripts/data_digest.py: read-only, fail-closed integrity digest on temporary fixtures."""
 import json
 import sqlite3
 import sys
@@ -64,7 +64,7 @@ def test_changed_chroma_vector_and_modified_hnsw_file_are_detected(prod):
 
 def test_changed_relationship_endpoint_or_property_is_detected(prod):
     a = take(prod)
-    moved = [RELS[0], {**RELS[1], "b": "4"}]                     # MENTIONS now points at Triton instead of CUDA
+    moved = [RELS[0], {**RELS[1], "b": "4"}]
     verdict, diff = dd.compare(a, take(prod, fake_query(rels=moved)))
     assert verdict == "DIFFERENT" and any("relationships_sha256" in d for d in diff)
     prop = [RELS[0], {**RELS[1], "props": {"surface": "Cuda"}}]
@@ -85,7 +85,7 @@ def test_unidentifiable_or_ambiguous_nodes_fail_closed(prod, nodes, why):
 
 def test_unavailable_sources_make_the_digest_incomplete(prod):
     (prod / "chroma" / "chroma.sqlite3").unlink()
-    d = dd.digest(prod)                                           # also: no Neo4j password in tests
+    d = dd.digest(prod)
     assert not d["complete"] and set(d["errors"]) == {"chroma", "neo4j"}
 
 def test_matching_error_responses_are_never_identical(prod):

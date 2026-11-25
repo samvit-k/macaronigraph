@@ -1,15 +1,10 @@
-"""Phase 4B evaluation (fixtures/rag_questions.json, frozen). Read-only w.r.t. production data: it reads the
-canonical records, the active Chroma collection and Neo4j; evaluation conversations go to a scratch database
-(never output/conversations.db); nothing is written to pipeline.db, Chroma or Neo4j.
+"""Retrieval and answer evaluation over the private question set, read-only with respect to production data.
 
+Usage:
   .venv/bin/python scripts/rag_eval.py retrieval --split dev [--params '{"min_specificity": 0.7}'] [--out f.json]
-  .venv/bin/python scripts/rag_eval.py tune --split dev --out tune.json            (grid over a few parameters)
-  .venv/bin/python scripts/rag_eval.py retrieval --split heldout --frozen PARAMS.json --out f.json
-  .venv/bin/python scripts/rag_eval.py answers --split heldout --frozen PARAMS.json --out f.json   (local LLM)
-  .venv/bin/python scripts/rag_eval.py baseline [--params ...]          (Phase 3 queries in every mode)
-
-Scoring rules are the ones stated in the dataset's "scoring" section. Held-out runs require --frozen (the tuned
-parameters) and refuse to run if the dataset changed (sha256 check).
+  .venv/bin/python scripts/rag_eval.py tune --split dev --out tune.json
+  .venv/bin/python scripts/rag_eval.py retrieval|answers --split heldout --frozen PARAMS.json --out f.json
+  .venv/bin/python scripts/rag_eval.py baseline [--params ...]
 """
 from __future__ import annotations
 
@@ -52,7 +47,6 @@ def load(split: str | None):
     return [q for q in qs if split in (None, q["split"])], sha
 
 def items(qs, include_multi=False):
-    """Single-question items; multi-turn first turns only unless include_multi (needs real citations)."""
     for q in qs:
         if "turns" in q:
             if include_multi:
@@ -62,8 +56,6 @@ def items(qs, include_multi=False):
                 yield {"id": q["id"] + ".t1", "category": "multi_turn", "split": q["split"], **t}
         else:
             yield q
-
-# ---------------------------------------------------------------- retrieval metrics
 
 def _rank_metrics(reels: list[str], relevant: set[str]) -> dict:
     out = {}
@@ -134,11 +126,7 @@ def run_retrieval(qs, params: dict, modes=MODES, ablations=True) -> dict:
         results[name] = {"summary": summarize(rows), "items": rows}
     return results
 
-# ---------------------------------------------------------------- tuning (dev only)
-
 def objective(res: dict) -> tuple:
-    """Pre-registered: maximize dev hybrid mean recall@10, then pack coverage, then added-passage precision;
-    configurations whose hybrid hit@5 falls below vector hit@5 are excluded (vector strength preserved)."""
     h, v = res["hybrid"]["summary"]["ALL"], res["vector"]["summary"]["ALL"]
     if (h["hit@5"] or 0) < (v["hit@5"] or 0):
         return (-1,)
@@ -155,12 +143,10 @@ def tune(qs) -> dict:
     trials.sort(key=lambda t: t["objective"], reverse=True)
     return {"grid": GRID, "best": trials[0], "top5": trials[:5], "n_trials": len(trials)}
 
-# ---------------------------------------------------------------- answers (local LLM)
-
 def run_answers(qs, params: dict, mode: str) -> dict:
     from backend import ask
     scratch = Path(tempfile.mkdtemp(prefix="rag-eval-conv-")) / "conversations.db"
-    conversations.db_path = lambda: scratch                      # never the user's conversation history
+    conversations.db_path = lambda: scratch
     rows = []
     for q in items(qs, include_multi=True):
         turns = q["turns"] if "turns" in q else [q]
@@ -189,7 +175,6 @@ def run_answers(qs, params: dict, mode: str) -> dict:
             "peak_rss_gb": round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1e9, 2)}
 
 def answer_auto_metrics(rows: list[dict]) -> dict:
-    """Automatic answer metrics; faithfulness is judged manually (saved separately)."""
     ans = [r for r in rows if r["expect"] in ("answer", "qualify", "disambiguate")]
     abst = [r for r in rows if r["expect"] == "abstain"]
     cites = [(r, c) for r in rows for c in r["citations"]]
@@ -214,8 +199,6 @@ def answer_auto_metrics(rows: list[dict]) -> dict:
                          "warm_p90": round(sorted(warm)[int(0.9 * (len(warm) - 1))], 2) if warm else None},
         "quote_exactness": "enforced by validation (quotes not found are removed and counted in removed_sentences)",
     }
-
-# ---------------------------------------------------------------- Phase 3 baseline
 
 def run_baseline(params: dict) -> dict:
     qs = json.loads(require(SEARCH_QUERIES).read_text())["queries"]

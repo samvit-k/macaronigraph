@@ -1,12 +1,4 @@
-"""Graph inspection, verification and Phase-4B hooks (read-only Cypher over Neo4jStore).
-
-Every result carries reel_id, source_url, chunk_id, start/end and (for relations) the verbatim quote, so it can
-be traced back to the saved Reel. Relation status is always shown:
-  proposed      model-extracted, quote verified against the passage (provenance, not truth)
-  corroborated  the same subject-predicate-object proposed independently in ≥ 2 Reels (still not verified)
-  verified / rejected   human review (rejected ones are hidden unless include_rejected)
-Co-occurrence ("mentioned in the same Reel") is reported separately and never as a relationship.
-"""
+"""Read-only graph queries, status and consistency verification over Neo4jStore."""
 from __future__ import annotations
 
 import json
@@ -20,7 +12,6 @@ STATUS_EXPR = """CASE WHEN a.status IN ['verified','rejected'] THEN a.status
                       WHEN support >= 2 THEN 'corroborated' ELSE 'proposed' END"""
 
 def resolve(store: Neo4jStore, name: str) -> dict | None:
-    """Concept by canonical key, else by name/alias (case-insensitive), else best full-text hit."""
     key = nz.canonicalize(name)[0]
     rows = store.run("MATCH (c:Concept {key: $k}) RETURN c.key AS key, c.name AS name, c.type AS type, "
                      "c.aliases AS aliases", k=key)
@@ -35,7 +26,7 @@ def resolve(store: Neo4jStore, name: str) -> dict | None:
         rows = store.run("""CALL db.index.fulltext.queryNodes('concept_names', $q) YIELD node, score
                             RETURN node.key AS key, node.name AS name, node.type AS type, node.aliases AS aliases
                             ORDER BY score DESC LIMIT 1""", q=name.replace("/", " "))
-    except Exception:  # noqa: BLE001 — odd query syntax
+    except Exception:  # noqa: BLE001
         rows = []
     return rows[0] if rows else None
 
@@ -100,7 +91,6 @@ def shared(store: Neo4jStore, min_reels: int = 2, limit: int = 50) -> list[dict]
 
 def evidence(store: Neo4jStore, a: str | None = None, b: str | None = None, reel_id: str | None = None,
              include_rejected: bool = False) -> list[dict]:
-    """Assertions (both directions between a and b, or all of one Reel) with their evidence passage."""
     params: dict = {"inc": include_rejected}
     if reel_id:
         where = "a.reel_id = $rid"
@@ -147,10 +137,7 @@ def between(store: Neo4jStore, a: str, b: str, include_rejected: bool = False) -
             "co_mentioned_in": co, "co_mention_note": "same Reel only; not a relationship",
             "two_hop": hops, "two_hop_note": "paths through model-proposed assertions; not verified"}
 
-# ---------------------------------------------------------------- Phase 4B hooks (helpers only)
-
 def concepts_for_chunks(store: Neo4jStore, chunk_ids: list[str], ready_only: bool = True) -> list[dict]:
-    """Chroma hits → their concepts (only Reels whose graph matches the active index, by default)."""
     return store.run("""
         MATCH (r:Reel)-[:HAS_PASSAGE]->(p:Passage)-[m:MENTIONS]->(c:Concept)
         WHERE p.chunk_id IN $ids AND (NOT $ready OR r.retrieval_ready)
@@ -158,7 +145,6 @@ def concepts_for_chunks(store: Neo4jStore, chunk_ids: list[str], ready_only: boo
                      ids=list(chunk_ids), ready=ready_only)
 
 def neighbors(store: Neo4jStore, keys: list[str], include_proposed: bool = True, limit: int = 50) -> list[dict]:
-    """One hop over assertions from the given concepts (statuses returned; rejected excluded)."""
     return store.run(f"""
         MATCH (c:Concept)<-[r1:SUBJECT|OBJECT]-(a:Assertion)-[r2:SUBJECT|OBJECT]->(n:Concept)
         WHERE c.key IN $keys AND n.key <> c.key AND a.status <> 'rejected'
@@ -169,10 +155,7 @@ def neighbors(store: Neo4jStore, keys: list[str], include_proposed: bool = True,
         RETURN c.key AS from, a.predicate AS predicate, n.key AS to, n.name AS name, status, support,
                a.reel_id AS reel_id, a.chunk_id AS chunk_id LIMIT $lim""", keys=list(keys), prop=include_proposed, lim=limit)
 
-# ---------------------------------------------------------------- verification
-
 def verify(store: Neo4jStore | None = None, check_chroma: bool = True) -> dict:
-    """SQLite eligible set vs graph_state vs Neo4j; orphans; provenance; duplicates; Chroma cross-check."""
     from .extract import grounding_version as ex_grounding
     from .extract import norm_text, surface_match
 
@@ -227,7 +210,7 @@ def verify(store: Neo4jStore | None = None, check_chroma: bool = True) -> dict:
     dup = store.run("""MATCH (c:Concept) WITH toLower(replace(replace(c.name, '-', ''), ' ', '')) AS n, collect(c.key) AS keys
                        WHERE size(keys) > 1 RETURN n, keys""")
     from .normalize import contextual_pairs
-    distinct = contextual_pairs()                     # e.g. physics "higgs field" vs the company "higgsfield"
+    distinct = contextual_pairs()
     near = [f"{d['keys']}" for d in dup if not _distinct_identifiers(d["keys"]) and frozenset(d["keys"]) not in distinct]
     report("near-duplicate concepts (case/spacing collisions)", near)
     if check_chroma:
@@ -252,6 +235,4 @@ def verify(store: Neo4jStore | None = None, check_chroma: bool = True) -> dict:
             "extractor_versions": versions}
 
 def _distinct_identifiers(keys: list[str]) -> bool:
-    """Keys that only collide after stripping hyphens/spaces but are deliberately distinct (cuda-q vs cudaq is a
-    real duplicate; c++ vs c is not a collision at all)."""
     return len({k.replace("-", "").replace(" ", "") for k in keys}) == len(keys)

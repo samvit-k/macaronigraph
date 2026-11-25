@@ -25,7 +25,7 @@ def test_missing_ocr_is_never_success():
     s, e = decide_status(CAP_OK, T_SPEECH, None)
     assert s == "partial" and any("ocr_missing" in x for x in e)
     s, e = decide_status(CAP_OK, T_SILENT, None)
-    assert s == "failed" and any("ocr_missing" in x for x in e)  # no content at all
+    assert s == "failed" and any("ocr_missing" in x for x in e)
 
 def test_missing_transcript_is_never_success():
     s, e = decide_status(CAP_OK, None, O_TEXT)
@@ -52,21 +52,20 @@ def test_truncated_long_video_cannot_succeed_even_with_full_coverage():
     for t in (T_SPEECH, T_SILENT):
         s, e = decide_status(cap, t, O_TEXT)
         assert s == "partial" and any("truncated_at_capture_limit" in x and "240.0" in x for x in e)
-    # even without the flag, duration > expected is detected
     s, _ = decide_status({**cap, "truncated": False}, T_SPEECH, O_TEXT)
     assert s == "partial"
 
 def test_brief_mute_is_a_warning_not_an_error():
-    cap = {**CAP_OK, "muted": True, "muted_s": 0.8}                      # e.g. Instagram re-muted on loop
+    cap = {**CAP_OK, "muted": True, "muted_s": 0.8}
     assert decide_status(cap, T_SPEECH, O_TEXT) == ("ok", [])
     rec = build_record({"reel_id": "R", "source_url": "u", "metadata": {}}, {**cap, "reel_id": "R"}, T_SPEECH, O_TEXT)
     assert rec["status"] == "ok" and rec["warnings"] == ["briefly_muted: 0.8s of 12.0s"]
 
 def test_long_mute_is_an_error_and_legacy_mute_stays_strict():
-    long_mute = {**CAP_OK, "muted": True, "muted_s": 6.0}                # half the capture muted
+    long_mute = {**CAP_OK, "muted": True, "muted_s": 6.0}
     s, e = decide_status(long_mute, T_SPEECH, O_TEXT)
     assert s == "partial" and any("audio_muted" in x and "6.0s" in x for x in e)
-    assert decide_status({**CAP_OK, "muted": True}, T_SPEECH, O_TEXT)[0] == "partial"  # no duration → strict
+    assert decide_status({**CAP_OK, "muted": True}, T_SPEECH, O_TEXT)[0] == "partial"
 
 def test_muted_playback_is_not_reported_as_no_speech():
     s, e = decide_status({**CAP_OK, "muted": True}, T_SILENT, O_TEXT)

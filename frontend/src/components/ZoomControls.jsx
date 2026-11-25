@@ -1,4 +1,4 @@
-// Floating view controls (copied from SanD Hacks): zoom in / out, fit, reset layout.
+// Floating view controls: zoom in, zoom out, fit and reset layout.
 export default function ZoomControls({ zoom, onZoomIn, onZoomOut, onFit, onRelayout }) {
   return (
     <div className="zoom-controls" role="toolbar" aria-label="Graph view controls">

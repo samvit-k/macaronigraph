@@ -1,3 +1,4 @@
+// Conversation state and chat rendering: sending, polling, history and every answer status.
 import { act, cleanup, fireEvent, render, renderHook, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import ChatMessage, { isListing, listingScope } from '../components/assistant/ChatMessage.jsx'
@@ -93,7 +94,7 @@ describe('useConversation', () => {
     expect(result.current.id).toBe('c1')
     await act(async () => { await result.current.remove('c2') })
     expect(client.deleteConversation).toHaveBeenCalledWith('c2')
-    expect(result.current.id).toBe('c1') // deleting another conversation keeps the open one
+    expect(result.current.id).toBe('c1')
     await act(async () => { await result.current.removeAll() })
     expect(client.clearConversations).toHaveBeenCalled()
     expect(result.current.id).toBeNull()

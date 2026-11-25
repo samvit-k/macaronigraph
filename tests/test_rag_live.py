@@ -1,10 +1,9 @@
-"""LIVE: rag.GraphReader against a THROWAWAY Neo4j (same fixture as test_graph_neo4j_live: temp dirs, random
-ports, never the production database). Graph built by the real sync with the fake LLM over a temp Chroma index."""
+"""Live graph reader tests against a throwaway Neo4j instance."""
 import pytest
 
 from backend import config, embedder, indexer, jobs, rag
 from backend.graph import sync as gs
-from test_graph_neo4j_live import neo, pytestmark  # noqa: F401  (fixture + skip marker)
+from test_graph_neo4j_live import neo, pytestmark  # noqa: F401
 from test_graph_sync import FakeLLM, triton_reel
 from test_indexer import add
 
@@ -38,7 +37,7 @@ def test_reader_queries_and_corroboration_from_real_evidence(neo):  # noqa: F811
     r = rag.retrieve("Triton is built on top of CUDA", mode="hybrid", graph=g,
                      options={"rel_abs": 0.0, "rel_frac": 0.0})
     assert r["mode_used"] == "hybrid" and r["connections"]["relations"]
-    assert {x["status"] for x in r["connections"]["relations"]} == {"corroborated"}   # 2 Reels, valid evidence
+    assert {x["status"] for x in r["connections"]["relations"]} == {"corroborated"}
 
 def test_rejected_relations_never_reach_retrieval(neo):  # noqa: F811
     build(neo)
@@ -58,6 +57,6 @@ def test_listing_and_validity_with_the_real_reader(neo):  # noqa: F811
     r = rag.retrieve("Which Reels mention CUDA?", mode="hybrid", graph=g)
     m = r["connections"]["mentions"][0]
     assert r["intent"] == "listing" and set(m["reels"]) == {"A", "B", "C"} and m["complete"]
-    neo.run("MATCH (r:Reel {reel_id: 'C'}) SET r.content_hash = 'outdated'")       # graph behind the index
+    neo.run("MATCH (r:Reel {reel_id: 'C'}) SET r.content_hash = 'outdated'")
     r = rag.retrieve("Which Reels mention CUDA?", mode="hybrid", graph=g)
     assert "C" not in r["connections"]["mentions"][0]["reels"] and r["stats"]["dropped_not_valid"] >= 1

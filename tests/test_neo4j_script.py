@@ -1,5 +1,4 @@
-"""scripts/neo4j.sh: syntax, first/repeated install, credential safety, default command, password generation.
-Uses a stub Neo4j home (bin/neo4j, bin/neo4j-admin) in a temp dir: no download, no real database."""
+"""scripts/neo4j.sh: syntax, first and repeated install, credential safety and password generation."""
 import os
 import re
 import stat
@@ -17,7 +16,6 @@ def env(tmp_path):
     (home / "bin").mkdir(parents=True)
     log = tmp_path / "calls.log"
     data = tmp_path / "data"
-    # neo4j-admin stub: records the call and initializes the database like the real one (auth.ini)
     (home / "bin" / "neo4j-admin").write_text(
         f'#!/usr/bin/env bash\necho "admin $*" >> "{log}"\nmkdir -p "{data}/data/dbms"\n'
         f'echo initialized > "{data}/data/dbms/auth.ini"\n')
@@ -61,7 +59,7 @@ def test_repeated_install_never_regenerates_or_resets(env):
         r = run(env, "install")
         assert r.returncode == 0 and "unchanged" in r.stdout
     assert env["envfile"].read_text() == before
-    assert len([c for c in calls(env) if c.startswith("admin")]) == 1     # initial password set exactly once
+    assert len([c for c in calls(env) if c.startswith("admin")]) == 1
 
 def test_initialized_database_without_credentials_stops_and_writes_nothing(env):
     assert run(env, "install").returncode == 0
@@ -98,7 +96,7 @@ def test_no_argument_runs_status(env):
 
 def test_password_generation_is_reliable_and_unique(env, tmp_path):
     pws = set()
-    for i in range(20):                       # fresh state each time: exercises gen_password under pipefail
+    for i in range(20):
         e = {**env["env"], "NEO4J_DATA_DIR": str(tmp_path / f"d{i}"), "NEO4J_ENV_FILE": str(tmp_path / f"e{i}")}
         r = subprocess.run(["bash", str(SCRIPT), "install"], env=e, capture_output=True, text=True)
         assert r.returncode == 0, r.stderr

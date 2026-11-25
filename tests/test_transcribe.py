@@ -1,4 +1,4 @@
-"""Speech vs silence vs music, multilingual and short utterances (real MLX-Whisper)."""
+"""Speech, silence and music, multilingual and short utterances (real MLX-Whisper)."""
 import subprocess
 from pathlib import Path
 
@@ -20,7 +20,7 @@ def test_norm_is_unicode_aware():
 def test_grade_segment_tiers():
     ok = {"text": "Yes.", "avg_logprob": -0.3, "no_speech_prob": 0.01, "compression_ratio": 0.5}
     assert T.grade_segment(ok) == ("confident", [])
-    assert T.grade_segment({**ok, "text": "Thank you."})[0] == "uncertain"       # kept, flagged
+    assert T.grade_segment({**ok, "text": "Thank you."})[0] == "uncertain"
     assert T.grade_segment({**ok, "avg_logprob": -1.3})[0] == "uncertain"
     assert T.grade_segment({**ok, "text": "♪"})[0] == "rejected"
     assert T.grade_segment({**ok, "compression_ratio": 3.1})[0] == "rejected"
@@ -52,7 +52,7 @@ def test_single_word_utterance_is_kept(tmp_path):
 
 def test_ambiguous_phrase_preserved_as_uncertain(tmp_path):
     r = T.transcribe_file(say(tmp_path, "Thank you."))
-    assert "thank you" in T.norm(r["text"] + " " + r["uncertain_text"])  # never silently dropped
+    assert "thank you" in T.norm(r["text"] + " " + r["uncertain_text"])
 
 def test_music_only_is_non_speech():
     r = T.transcribe_file(config.TEST_MEDIA_DIR / "TESTMUSIC.mp4")

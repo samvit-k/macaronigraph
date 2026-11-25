@@ -1,6 +1,4 @@
-"""POST /api/ask and the request flow (backend/ask.py) — integration over a real temporary Chroma index, a fake
-graph or an offline Neo4j, and a scripted local model: fallback, deferral and polling, queue capacity, worker
-recovery, restart expiry, previous-Reel scoping, cited concepts, standalone queries, and the /app page."""
+"""POST /api/ask and the request flow over a real temporary Chroma index and a scripted model."""
 import json
 import re
 import threading
@@ -15,10 +13,9 @@ from helpers import heavy_lock_held
 from test_indexer import add
 from test_rag_retrieve import FakeGraph
 
-client = TestClient(app)          # no lifespan: background threads are not started
+client = TestClient(app)
 
 class AnswerLLM:
-    """Cites the first source with its first words; records prompts; answers rewrite requests if configured."""
 
     def __init__(self, rewrite_to=None):
         self.prompts, self.rewrite_to = [], rewrite_to
@@ -55,8 +52,6 @@ def capture_on():
 def capture_off():
     with jobs.tx() as con:
         con.execute("UPDATE sessions SET finished_at = 1")
-
-# ---------------------------------------------------------------- API basics
 
 def test_hybrid_with_neo4j_offline_falls_back_to_vector_and_still_answers(env):
     r = client.post("/api/ask", json={"question": "How do CUDA kernels work?"}).json()
@@ -99,24 +94,22 @@ def test_conversation_endpoints_roundtrip(env):
     assert any(x["id"] == r["conversation_id"] for x in client.get("/api/conversations").json())
     assert client.delete(f"/api/conversations/{r['conversation_id']}").status_code == 200
 
-# ---------------------------------------------------------------- deferral, queue, worker
-
 def test_capture_defers_generation_then_the_queue_answers_with_the_standalone_query(env, monkeypatch):
-    monkeypatch.setitem(ask.answer.DEFAULTS, "listing", False)   # this test is about the generative path
+    monkeypatch.setitem(ask.answer.DEFAULTS, "listing", False)
     first = ask.ask("What is CUDA?", graph=FakeGraph(), llm=env)
     capture_on()
     r = ask.ask("Which other Reels mention it?", conversation_id=first["conversation_id"], graph=FakeGraph())
     assert r["status"] == "queued" and r["answer"]["status"] == "deferred" and r["sources"]
     assert "capture" in r["answer"]["reason"]
     assert client.get(f"/api/ask/{r['request_id']}").json()["status"] == "queued"
-    assert ask.process_one(llm=env) is None                       # rechecked right before generating: still busy
+    assert ask.process_one(llm=env) is None
     capture_off()
     n = len(env.prompts)
     assert ask.process_one(llm=env) == r["request_id"]
     done = client.get(f"/api/ask/{r['request_id']}").json()
     assert done["status"] == "ok" and done["question"] == "Which other Reels mention it?"
     assert done["standalone_query"] == "Which other Reels mention CUDA?"
-    assert "QUESTION: Which other Reels mention CUDA?" in env.prompts[n]  # generated for the standalone query
+    assert "QUESTION: Which other Reels mention CUDA?" in env.prompts[n]
 
 def test_model_busy_beyond_the_wait_defers_instead_of_failing(env):
     with heavy_lock_held():
@@ -148,7 +141,7 @@ def test_worker_recovers_from_a_failing_item_and_keeps_going(env, monkeypatch):
     monkeypatch.setattr(conversations, "get_turn", flaky)
     monkeypatch.setattr(ask, "POLL_S", 0.05)
     ask._stop.clear()
-    worker = threading.Thread(target=ask._loop)                  # the worker loop itself (no restart expiry)
+    worker = threading.Thread(target=ask._loop)
     worker.start()
     try:
         deadline = time.time() + 10
@@ -165,16 +158,14 @@ def test_worker_recovers_from_a_failing_item_and_keeps_going(env, monkeypatch):
 def test_restart_expires_queued_turns_visibly(env):
     capture_on()
     r = ask.ask("How do CUDA kernels work?")
-    ask._queue.clear()                                           # the process "restarts"
+    ask._queue.clear()
     assert ask.start() == 1
     ask.stop()
     t = ask.request_status(r["request_id"])
     assert t["status"] == "expired" and "restarted" in t["answer"]["reason"]
 
-# ---------------------------------------------------------------- scoping and memory
-
 def test_other_reels_exclude_previously_cited_reels_and_which_of_them_restricts(env, monkeypatch):
-    monkeypatch.setitem(ask.answer.DEFAULTS, "listing", False)   # this test is about the generative path
+    monkeypatch.setitem(ask.answer.DEFAULTS, "listing", False)
     first = ask.ask("Which Reels mention CUDA?", graph=FakeGraph(), llm=env)
     cited = set(conversations.get_turn(first["turn_id"])["cited_reels"])
     assert cited
@@ -182,7 +173,7 @@ def test_other_reels_exclude_previously_cited_reels_and_which_of_them_restricts(
                     graph=FakeGraph(), llm=env)
     assert not cited & set(other["connections"]["mentions"][0]["reels"])
     assert not cited & {s["reel_id"] for s in other["sources"]}
-    previous = set(conversations.get_turn(other["turn_id"])["cited_reels"])    # "them" = the last answer's Reels
+    previous = set(conversations.get_turn(other["turn_id"])["cited_reels"])
     assert previous
     scoped = ask.ask("Which of them talk about Triton?", conversation_id=first["conversation_id"],
                      graph=FakeGraph(), llm=env)
@@ -225,13 +216,11 @@ def test_follow_up_turns_are_marked_so_hard_gates_skip_them(env, monkeypatch):
     assert seen == [False, True]
 
 def test_which_of_them_follow_ups_skip_hard_gates_only_with_the_fix(env, monkeypatch):
-    """Phase 4D fix (held-out hm1.t2): 'Which of those …' strips to a question with nothing to resolve, so the
-    rewrite method stays 'none' — but the turn is scoped to the previous answer, i.e. context-dependent."""
     seen = []
     real = ask.answer.generate
     monkeypatch.setattr(ask.answer, "generate", lambda *a, **k: seen.append(k.get("follow_up")) or real(*a, **k))
     monkeypatch.setitem(conversations.DEFAULTS, "referents", "v2")
-    monkeypatch.setitem(ask.answer.DEFAULTS, "listing", False)   # this test is about the generative path
+    monkeypatch.setitem(ask.answer.DEFAULTS, "listing", False)
     for fix in (False, True):
         monkeypatch.setitem(ask.answer.DEFAULTS, "scoped_follow_up", fix)
         first = ask.ask("Which Reels mention CUDA?", graph=FakeGraph(), llm=env)

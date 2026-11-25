@@ -1,11 +1,4 @@
-"""Local embedding models (sentence-transformers). No network after the one-time model download.
-
-An index is tied to an embedding *spec*: model id + resolved Hugging Face commit + dtype + normalisation +
-document prompt + max sequence length + vector dimension (when fixed by the spec) + chunker version.
-`signature(spec)` hashes it; a different signature means the existing vectors are incompatible and the index
-must be rebuilt (indexer.py does that safely). The query instruction is recorded but does not invalidate
-document vectors.
-"""
+"""Local embedding models (sentence-transformers) and the index signature they define."""
 from __future__ import annotations
 
 import hashlib
@@ -18,18 +11,15 @@ import numpy as np
 
 from . import chunking, config
 
-# Per-model query instructions (documents are embedded without a prompt).
 QUERY_PROMPTS = {
     "Qwen/Qwen3-Embedding-0.6B": "Instruct: Given a question, retrieve passages from short-video transcripts, "
                                  "on-screen text and captions that answer it\nQuery: ",
     "BAAI/bge-base-en-v1.5": "Represent this sentence for searching relevant passages: ",
 }
-MAX_SEQ_LENGTH = 1024        # chunks are ≤ ~1.2k chars + header; caps memory for long captions
-# `dim` is None for real models (fixed by model + revision); set explicitly where the spec chooses it.
+MAX_SEQ_LENGTH = 1024
 SPEC_KEYS = ("model", "revision", "dtype", "normalize", "doc_prompt", "max_seq_length", "dim", "chunker")
 
 def resolve_revision(model_id: str) -> str:
-    """Commit hash of the locally cached snapshot (refs/main in the HF cache); downloads once if missing."""
     from pathlib import Path
 
     from huggingface_hub import constants, snapshot_download
@@ -59,8 +49,7 @@ def signature(spec: dict) -> str:
     return hashlib.sha256(json.dumps({k: spec.get(k) for k in SPEC_KEYS}, sort_keys=True).encode()).hexdigest()[:16]
 
 class Embedder:
-    """sentence-transformers model, loaded lazily on first use. Loading and encoding are serialized by one
-    lock, so concurrent first calls (search + indexing, or `dim`) initialise the model exactly once."""
+    """Loads lazily; one lock serializes loading and encoding so concurrent first calls load the model once."""
 
     def __init__(self, spec: dict):
         self.spec = spec
@@ -103,7 +92,6 @@ class Embedder:
                                        convert_to_numpy=True, show_progress_bar=False)[0].astype(np.float32)
 
 class HashEmbedder:
-    """Deterministic bag-of-words hashing embedder for tests (no model, no network)."""
     MODEL = "test/hash-embedder"
 
     def __init__(self, dim: int = 64, chunker: str | None = None):
@@ -135,7 +123,6 @@ _cache: dict[str, object] = {}
 _cache_lock = threading.Lock()
 
 def for_spec(spec: dict):
-    """One embedder instance per signature (search for an older collection keeps using its own model)."""
     sig = signature(spec)
     with _cache_lock:
         if sig not in _cache:

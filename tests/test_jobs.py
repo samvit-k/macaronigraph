@@ -1,4 +1,4 @@
-"""Job tracking: resumability, duplicates, retries, recovery, canonical records, migration."""
+"""Job tracking: resumability, duplicates, retries, recovery, canonical records and migration."""
 import json
 import time
 from pathlib import Path
@@ -31,13 +31,11 @@ def state(rid):
 def canonical_lines():
     return jobs.read_jsonl(config.OUTPUT_JSONL)
 
-# ---------------------------------------------------------------- import / leasing / resume
-
 def test_import_is_idempotent_and_never_resets_state():
     assert jobs.import_posts("ig", posts(3)) == 3
     jobs.create_session("ig-a", "ig", 1)
     jobs.record_attempt(rec("R0", "ig-a"))
-    assert jobs.import_posts("ig", posts(3)) == 0           # duplicate import adds nothing
+    assert jobs.import_posts("ig", posts(3)) == 0
     assert state("R0")["state"] == "done" and state("R0")["attempts"] == 1
 
 def test_sessions_do_not_share_leases_and_resume_skips_done():
@@ -48,21 +46,21 @@ def test_sessions_do_not_share_leases_and_resume_skips_done():
     jobs.record_attempt(rec("R0", "ig-a"))
     jobs.record_attempt(rec("R1", "ig-a"))
     jobs.finish_session("ig-a")
-    assert jobs.finish_session("ig-b") == 2                   # R2, R3 never reported → back to pending
+    assert jobs.finish_session("ig-b") == 2
     c = jobs.create_session("ig-c", "ig", 10)
-    assert [i["reel_id"] for i in c] == ["R2", "R3", "R4"]   # done Reels are not re-queued
+    assert [i["reel_id"] for i in c] == ["R2", "R3", "R4"]
 
 def test_interrupted_session_is_reclaimed_only_when_stale():
     jobs.import_posts("ig", posts(3))
     t0 = time.time() - 2 * jobs.STALE_SESSION_S
-    jobs.create_session("ig-old", "ig", 2, now=t0)            # crashed: no heartbeat since t0
+    jobs.create_session("ig-old", "ig", 2, now=t0)
     assert [i["reel_id"] for i in jobs.create_session("ig-new", "ig", 10)] == ["R0", "R1", "R2"]
 
 def test_heartbeat_keeps_long_running_session_alive():
     jobs.import_posts("ig", posts(3))
     t0 = time.time() - 2 * jobs.STALE_SESSION_S
-    jobs.create_session("ig-long", "ig", 2, now=t0)          # started long ago, no Reel completed since…
-    assert jobs.heartbeat("ig-long")                          # …but the extension is still heart-beating
+    jobs.create_session("ig-long", "ig", 2, now=t0)
+    assert jobs.heartbeat("ig-long")
     assert [i["reel_id"] for i in jobs.create_session("ig-other", "ig", 10)] == ["R2"]
     assert state("R0")["lease_session"] == "ig-long"
 
@@ -70,13 +68,12 @@ def test_heartbeat_keeps_long_running_session_alive():
 def test_unprocessed_reprocess_lease_restores_prior_state(mode):
     jobs.import_posts("ig", posts(3))
     jobs.create_session("ig-a", "ig", 3)
-    jobs.record_attempt(rec("R0", "ig-a"))                                         # done
-    jobs.record_attempt(rec("R1", "ig-a", "failed", ["stalled"], playback="stalled"))  # needs_retry
-    jobs.finish_session("ig-a")                                                    # R2 → pending
+    jobs.record_attempt(rec("R0", "ig-a"))
+    jobs.record_attempt(rec("R1", "ig-a", "failed", ["stalled"], playback="stalled"))
+    jobs.finish_session("ig-a")
     jobs.create_session("ig-b", "ig", 3, mode=mode, reel_ids=["R0", "R1", "R2"])
-    assert jobs.finish_session("ig-b") == 3                                        # nothing reported
+    assert jobs.finish_session("ig-b") == 3
     assert [state(r)["state"] for r in ("R0", "R1", "R2")] == ["done", "needs_retry", "pending"]
-    # stale-session reclaim restores prior states too
     jobs.create_session("ig-c", "ig", 3, mode="all", now=time.time() - 2 * jobs.STALE_SESSION_S)
     jobs.create_session("ig-d", "ig", 0)
     assert [state(r)["state"] for r in ("R0", "R1", "R2")] == ["done", "needs_retry", "pending"]
@@ -86,8 +83,6 @@ def test_heartbeat_after_finish_is_rejected():
     jobs.create_session("ig-a", "ig", 1)
     jobs.finish_session("ig-a")
     assert jobs.heartbeat("ig-a") is False
-
-# ---------------------------------------------------------------- duplicates & retries
 
 def test_duplicate_upload_is_idempotent():
     jobs.import_posts("ig", posts(1))
@@ -106,7 +101,7 @@ def test_retries_then_exhausted_with_best_attempt_canonical():
         status = "partial" if i == 1 else "failed"
         outs.append(jobs.record_attempt(rec("R0", f"ig-{i}", status, ["playback_stalled"], playback="stalled")))
     assert [o["state"] for o in outs] == ["needs_retry", "needs_retry", "exhausted"]
-    assert jobs.create_session("ig-x", "ig", 10) == []                     # exhausted is not re-queued
+    assert jobs.create_session("ig-x", "ig", 10) == []
     jobs.export_canonical()
     (line,) = canonical_lines()
     assert line["status"] == "partial" and line["processing"]["canonical_attempt_id"] == outs[1]["attempt_id"]
@@ -158,7 +153,6 @@ def test_canonical_export_one_line_per_reel_and_history_complete():
     assert len(jobs.read_jsonl(jobs.attempts_jsonl())) == 6
 
 def test_jsonl_survives_unicode_line_separators():
-    """Real case: an Instagram export caption (raw mojibake) contained U+0085, which str.splitlines() splits on."""
     nel, lsep, psep = chr(0x85), chr(0x2028), chr(0x2029)
     jobs.import_posts("ig", posts(1))
     jobs.create_session("ig-a", "ig", 1)
@@ -169,23 +163,21 @@ def test_jsonl_survives_unicode_line_separators():
     jobs.export_canonical()
     for path in (jobs.attempts_jsonl(), config.OUTPUT_JSONL):
         text = path.read_text(encoding="utf-8")
-        assert not any(c in text for c in (nel, lsep, psep))                  # escaped on disk
-        assert len(text.splitlines()) == len(jobs.read_jsonl(path)) == 1      # even naive readers agree
-        assert jobs.read_jsonl(path)[0]["metadata"]["raw"]["caption"] == tricky  # value round-trips exactly
+        assert not any(c in text for c in (nel, lsep, psep))
+        assert len(text.splitlines()) == len(jobs.read_jsonl(path)) == 1
+        assert jobs.read_jsonl(path)[0]["metadata"]["raw"]["caption"] == tricky
 
 def test_export_is_debounced():
     jobs.import_posts("ig", posts(12))
     jobs.create_session("ig-a", "ig", 12)
-    jobs.record_attempt(rec("R0", "ig-a"))                    # first export (time-based)
+    jobs.record_attempt(rec("R0", "ig-a"))
     for i in range(1, jobs.EXPORT_EVERY_N):
         jobs.record_attempt(rec(f"R{i}", "ig-a"))
-    assert len(canonical_lines()) == 1                        # not rewritten on every attempt
-    jobs.record_attempt(rec(f"R{jobs.EXPORT_EVERY_N}", "ig-a"))  # Nth pending attempt triggers a refresh
+    assert len(canonical_lines()) == 1
+    jobs.record_attempt(rec(f"R{jobs.EXPORT_EVERY_N}", "ig-a"))
     assert len(canonical_lines()) == jobs.EXPORT_EVERY_N + 1
-    jobs.finish_session("ig-a")                                # finishing always exports
+    jobs.finish_session("ig-a")
     assert not config.OUTPUT_JSONL.with_suffix(".jsonl.tmp").exists()
-
-# ---------------------------------------------------------------- migration
 
 def write_phase1():
     lines = [rec("R0", "ig-p1a", "partial", ["audio_muted"]), rec("R0", "ig-p1b", "ok"), rec("R1", "ig-p1b", "ok")]
@@ -197,10 +189,10 @@ def test_migration_backs_up_and_is_rerunnable():
     original = write_phase1()
     out = jobs.migrate_phase1(sources={"ig": posts(2)})
     assert out["imported"] == 3
-    assert Path(out["backup"]).read_bytes() == original          # untouched copy of Phase-1 data
+    assert Path(out["backup"]).read_bytes() == original
     assert [l["reel_id"] for l in canonical_lines()] == ["R0", "R1"]
     assert jobs.get_meta("phase1_migration_in_progress") is None
-    again = jobs.migrate_phase1(sources={"ig": posts(2)})       # re-run: reads the backup, imports nothing
+    again = jobs.migrate_phase1(sources={"ig": posts(2)})
     assert again["imported"] == 0 and again["skipped"] == 3 and jobs.status()["attempts"] == 3
 
 @pytest.mark.parametrize("resume_explicitly", [False, True])
@@ -220,20 +212,16 @@ def test_interrupted_migration_resumes_without_loss_or_duplicates(monkeypatch, r
     monkeypatch.setattr(jobs, "record_attempt", real)
     assert jobs.status()["attempts"] == 1
     assert jobs.get_meta("phase1_migration_in_progress") is not None
-    # Simulate the worst case: an export already replaced enriched_reels.jsonl after the crash.
     config.OUTPUT_JSONL.write_text(json.dumps({"reel_id": "R0", "processing": {}}) + "\n")
     (backup,) = (config.OUTPUT_DIR / "backup").glob("*.jsonl")
     assert backup.read_bytes() == original
 
-    # Re-running the normal command (no path) must find the backup via the in-progress marker.
     out = jobs.migrate_phase1(backup if resume_explicitly else None, sources={"ig": posts(2)})
     assert out["backup"] == str(backup)
     assert out["imported"] == 2 and out["skipped"] == 1 and jobs.status()["attempts"] == 3
     assert [l["reel_id"] for l in canonical_lines()] == ["R0", "R1"]
     assert jobs.get_meta("phase1_migration_in_progress") is None
-    assert len(list((config.OUTPUT_DIR / "backup").glob("*.jsonl"))) == 1   # no second backup of the garbage
-
-# ---------------------------------------------------------------- through the API
+    assert len(list((config.OUTPUT_DIR / "backup").glob("*.jsonl"))) == 1
 
 def test_api_duplicate_post_is_not_reprocessed(monkeypatch):
     client = TestClient(app)

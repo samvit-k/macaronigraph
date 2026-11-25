@@ -1,9 +1,8 @@
-"""Phase 5 read-only graph views (backend/graph/view.py) on a THROWAWAY Neo4j instance (fixture from
-test_graph_neo4j_live; production output/neo4j is never touched). Skipped when Neo4j is not installed."""
+"""Read-only workspace graph views on a throwaway Neo4j instance."""
 import pytest
 
 from backend.graph import view
-from test_graph_neo4j_live import ROOT, clean, neo  # noqa: F401 — fixtures
+from test_graph_neo4j_live import ROOT, clean, neo  # noqa: F401
 
 pytestmark = pytest.mark.skipif(not (ROOT / ".tools" / "neo4j" / "bin" / "neo4j").exists(),
                                 reason="Neo4j not installed (scripts/neo4j.sh install)")
@@ -35,11 +34,11 @@ def seeded(neo):
 def test_overview_shows_reels_bridge_concepts_mentions_and_non_rejected_assertions(seeded):
     o = view.overview(seeded)
     assert o["totals"] == {**o["totals"], "reels": 2, "concepts": 3, "bridge": 1}
-    assert [r["reel_id"] for r in o["reels"]] == ["R1", "R2"]                       # newest first
+    assert [r["reel_id"] for r in o["reels"]] == ["R1", "R2"]
     keys = {c["key"]: c for c in o["concepts"]}
     assert keys["cuda"]["bridge"] and keys["cuda"]["n_reels"] == 2
-    assert "gpu" in keys and not keys["gpu"]["bridge"]                               # endpoint of a shown assertion
-    assert "triton" not in keys                                                      # single-Reel, only in a rejected one
+    assert "gpu" in keys and not keys["gpu"]["bridge"]
+    assert "triton" not in keys
     assert {(m["reel_id"], m["concept_key"]) for m in o["mentions"]} == {("R1", "cuda"), ("R2", "cuda"), ("R1", "gpu")}
     assert [a["id"] for a in o["assertions"]] == ["a1"] and o["assertions"][0]["status"] == "proposed"
 
@@ -52,7 +51,7 @@ def test_reel_neighborhood_has_all_its_concepts_with_excerpts(seeded):
     assert n["found"] and {c["key"] for c in n["concepts"]} == {"cuda", "triton"}
     ev = next(c for c in n["concepts"] if c["key"] == "triton")["evidence"][0]
     assert ev["content_type"] == "ocr" and ev["text"] == "CUDA and Triton"
-    assert n["assertions"] == []                                                     # the rejected one is hidden
+    assert n["assertions"] == []
 
 def test_concept_neighborhood_resolves_names_and_lists_reels(seeded):
     n = view.neighborhood(seeded, "concept", "cuda")

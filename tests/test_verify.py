@@ -1,6 +1,4 @@
-"""Phase 4D claim verification, bounded repair and multi-part coverage (backend/verify.py) with a scripted model:
-deterministic checks, decision rule, drop/repair/flag modes, re-verification of repairs, the call budget, unreadable
-verifier output, and that one answer's model calls all run inside one hold of the heavy lock."""
+"""Claim verification, bounded repair and multi-part coverage with a scripted model."""
 import json
 
 import pytest
@@ -21,7 +19,6 @@ PACK = {"sources": [src("S1", "A", "Round 2 is hands-on service design. They ski
                     src("S3", "C", "SALE 50% OFF", kind="ocr")], "connections": {}}
 
 class Script:
-    """Returns the next scripted reply for each kind of call; records calls and checks the heavy lock."""
 
     def __init__(self, draft, verify_replies=(), repair=None):
         self.draft, self.ver, self.repair, self.calls = draft, list(verify_replies), repair, []
@@ -53,8 +50,6 @@ def run(mode, llm, coverage=False, q="What happens in round 2, and how many core
     finally:
         answer.DEFAULTS.update(verify="off", coverage=False)
 
-# ---------------------------------------------------------------- deterministic checks
-
 def test_numbers_are_normalised_and_versions_handles_and_ids_ignored():
     assert verify.numbers("$10K a month, 33 a day, four parts, 1.137 Hartree, 2.1x") == {10000.0, 33.0, 4.0, 1.137, 2.1}
     assert verify.numbers("ten thousand") == {10000.0}
@@ -78,8 +73,6 @@ def test_checks_flag_missing_numbers_hard_and_other_hints_soft():
 ])
 def test_only_multi_part_questions_are_decomposed(q, n):
     assert len(verify.parts(q)) == n
-
-# ---------------------------------------------------------------- modes
 
 def test_drop_removes_problem_claims_and_keeps_supported_ones_unchanged():
     llm = Script(DRAFT, [v("SUPPORTED", "SUPPORTED")])
@@ -107,12 +100,12 @@ def test_a_repair_that_fails_reverification_or_validation_is_never_delivered():
     bad = {"r": [{"id": "C1", "t": "The Reel says it has 18,000 cores.", "c": ["S2"]}]}
     out = run("repair", Script(DRAFT, [v("SUPPORTED", "SUPPORTED"), v("NOT_FOUND")], repair=bad))
     assert len(out["sentences"]) == 1
-    out = run("repair", Script(DRAFT, [v("SUPPORTED", "SUPPORTED"), ""], repair=bad))          # no verdict
+    out = run("repair", Script(DRAFT, [v("SUPPORTED", "SUPPORTED"), ""], repair=bad))
     assert len(out["sentences"]) == 1
-    wrong = {"r": [{"id": "C1", "t": "The Reel says it has 18,000 cores.", "c": ["S9"]}]}       # invalid citation
+    wrong = {"r": [{"id": "C1", "t": "The Reel says it has 18,000 cores.", "c": ["S9"]}]}
     llm = Script(DRAFT, [v("SUPPORTED", "SUPPORTED")], repair=wrong)
     out = run("repair", llm)
-    assert len(out["sentences"]) == 1 and llm.calls == ["draft", "verify", "repair"]        # nothing to re-verify
+    assert len(out["sentences"]) == 1 and llm.calls == ["draft", "verify", "repair"]
 
 def test_unreadable_verifier_output_keeps_original_claims_marked_unverified():
     out = run("drop", Script(DRAFT | {"s": DRAFT["s"][:1]}, ["not json"]))

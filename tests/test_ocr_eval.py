@@ -1,3 +1,4 @@
+"""OCR evaluation report logic on synthetic results."""
 import sys
 from pathlib import Path
 
@@ -16,14 +17,14 @@ def test_informative_tokens_keep_acronyms_numbers_and_recurring_names():
            seg(3, "Vultr GPU inference"), seg(4, "Vultr credits"), seg(5, "qzxv")]
     info = ocr_eval.informative_tokens(raw, WORDS, spoken=set())
     assert {"rag", "ai", "x86", "arm", "4", "gpu", "vultr", "agent", "setup"} <= info
-    assert "qzxv" not in info and "credits" not in info  # one-off non-word: not counted as information
+    assert "qzxv" not in info and "credits" not in info
 
 def test_retention_counts_technical_terms_not_just_dictionary_words():
     raw = [seg(0, "RAG pipeline x86"), seg(1, "RAG pipeline x86")]
     info = ocr_eval.informative_tokens(raw, WORDS, set())
-    assert info == {"rag", "pipeline", "x86"}            # 'pipeline' is informative: it recurs
+    assert info == {"rag", "pipeline", "x86"}
     partial = ocr_eval.metrics([{"text": "RAG x86"}], info, WORDS, set())
-    assert partial["retention"] == pytest.approx(2 / 3)  # 'pipeline' lost
+    assert partial["retention"] == pytest.approx(2 / 3)
     full = ocr_eval.metrics([{"text": "RAG pipeline x86"}], info, WORDS, set())
     assert full["retention"] == 1.0
 

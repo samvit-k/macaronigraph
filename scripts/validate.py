@@ -1,9 +1,6 @@
 """Validate a browser capture session against the generated media's ground truth.
 
 Usage: .venv/bin/python scripts/validate.py [SESSION_ID] [--expect ID1,ID2,...]
-  SESSION_ID defaults to the latest test-* session.
-  Expected items come from the session manifest written by /api/session (so a 3-video run expects
-  exactly those 3); --expect overrides it. Exit code 0 only if every check passes.
 """
 from __future__ import annotations
 
@@ -20,12 +17,11 @@ MAX_WER = 0.15
 MAX_SUBTITLE_WER = 0.2
 
 def validate(sid: str, rows: list[dict], truth: dict, expected_ids: list[str] | None) -> tuple[list[str], list[str]]:
-    """→ (report lines, failures). Pure: no file IO."""
     out, fails = [], []
     recs_all = [r for r in rows if r.get("session_id") == sid]
     latest: dict[str, dict] = {}
     for r in recs_all:
-        latest[r["reel_id"]] = r  # last attempt wins
+        latest[r["reel_id"]] = r
     out.append(f"session {sid}: {len(recs_all)} records, expected {len(expected_ids) if expected_ids is not None else '?'}\n")
 
     if expected_ids is None:
@@ -54,7 +50,6 @@ def validate(sid: str, rows: list[dict], truth: dict, expected_ids: list[str] | 
         recall = ocr_card_recall(long_cards, o.get("segments", [])) if o else None
         flash_hit = (f"{sum(card_found(x['text'], o.get('segments', [])) is not None for x in flash)}/{len(flash)}"
                      if flash and o else "-")
-        # timestamp error: |first OCR sighting - card start| (bounded below by the sampling interval)
         dts = [abs(s["start"] - x["start"]) for x in long_cards if (s := card_found(x["text"], o.get("segments", [])))] if o else []
         dt = max(dts) if dts else None
         out.append(f"{rid:12} {r['status']:13} {exp:13} {str(t.get('audio_class', '-')):10} "
@@ -93,7 +88,7 @@ def main(argv: list[str]) -> int:
                        for a in argv if a.startswith("--expect")), None)
     if expect_arg and expect_arg in args:
         args.remove(expect_arg)
-    history = config.OUTPUT_DIR / "attempts.jsonl"  # every attempt (the canonical file keeps only the best)
+    history = config.OUTPUT_DIR / "attempts.jsonl"
     rows = jobs.read_jsonl(history) if history.is_file() else []
     sessions = [r["session_id"] for r in rows if (r.get("session_id") or "").startswith("test-")]
     sid = args[0] if args else (sessions[-1] if sessions else None)

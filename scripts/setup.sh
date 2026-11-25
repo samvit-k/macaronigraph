@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
-# Project-local toolchain (no sudo, nothing system-wide):
-#   ffmpeg + tesseract -> .tools/env via micromamba (conda-forge)
-#   Python 3.11 deps   -> .venv via uv
-# Idempotent: re-running only installs what is missing.
+# Project-local toolchain, no sudo: ffmpeg and Tesseract into .tools/env, Python 3.11 dependencies into .venv. Idempotent.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -19,7 +16,6 @@ step() { echo "==> $*"; }
 command -v uv >/dev/null || die "uv not found on PATH (https://docs.astral.sh/uv/)."
 command -v curl >/dev/null || die "curl not found."
 
-# 1. micromamba
 mkdir -p "$TOOLS/bin"
 if [ ! -x "$MAMBA" ]; then
   step "downloading micromamba"
@@ -30,7 +26,6 @@ if [ ! -x "$MAMBA" ]; then
   mv "$tmp/bin/micromamba" "$MAMBA" && chmod +x "$MAMBA"
 fi
 
-# 2. ffmpeg + tesseract
 if [ ! -x "$ENV/bin/ffmpeg" ] || [ ! -x "$ENV/bin/tesseract" ]; then
   step "installing ffmpeg + tesseract into .tools/env"
   export MAMBA_ROOT_PREFIX="$TOOLS/mamba"
@@ -41,7 +36,7 @@ if [ ! -x "$ENV/bin/ffmpeg" ] || [ ! -x "$ENV/bin/tesseract" ]; then
   fi
 fi
 
-# 3. Python venv (must be 3.11; an incompatible one is moved aside, never deleted)
+# Python 3.11 venv: an incompatible one is moved aside, never deleted.
 if [ -x "$VENV/bin/python" ]; then
   have="$("$VENV/bin/python" -c 'import sys; print(f"{sys.version_info[0]}.{sys.version_info[1]}")' 2>/dev/null || echo broken)"
   if [ "$have" != "$REQUIRED_PY" ]; then
@@ -61,7 +56,6 @@ fi
 step "installing Python dependencies"
 VIRTUAL_ENV="$VENV" uv pip install -q -r "$ROOT/requirements.txt" || die "pip install failed"
 
-# 4. Verify everything through the same resolution path the backend uses.
 step "verifying toolchain"
 "$VENV/bin/python" "$ROOT/scripts/check_env.py" || die "environment verification failed"
 step "setup complete"

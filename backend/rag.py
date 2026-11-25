@@ -1,41 +1,4 @@
-"""Phase 4B retrieval: vector-only, graph-only and hybrid modes over the saved Reels.
-
-  vector   the Phase 3 semantic search (active Chroma collection), passage level.
-  graph    no vector similarity: concepts named in the question (or carried from earlier turns) → passages that
-           mention them, plus the evidence passages of non-rejected relations touching them; ranked by concept
-           specificity, mention quality and content type.
-  hybrid   vector passages first; their grounded concepts, the question's concepts and any follow-up referents
-           seed an expansion through shared concepts (co-mention) and non-rejected relations; every expanded
-           passage must be semantically relevant to the question (cosine to the query, from the embeddings
-           already in Chroma — nothing is re-embedded) and specific enough; channels are fused by weighted
-           reciprocal rank; the top vector Reels keep their ranks, and part of the context pack (slots AND
-           characters) is reserved for graph-found passages from OTHER Reels so protection cannot crowd out
-           complementary evidence.
-
-How a passage was found is recorded per source (channels): "semantic" (similarity), "shared_concept" (it mentions
-a concept shared with the question or its vector results: co-mention, NOT a stated relation), "relation"
-(evidence of a model-proposed / corroborated / human-verified assertion; rejected assertions are never used).
-
-Validity: every graph-derived item — seed mentions, expanded passages, relation evidence, the evidence counted
-towards corroboration, and the mentions behind reported co-mentions — must belong to a Reel the graph marks
-retrieval_ready AND its chunk must be in the ACTIVE Chroma collection with the content hash the graph recorded
-(the flag alone is not trusted).
-
-Specificity is corpus-relative: spec(c) = log(N/df) / log(N) (N = Reels in the graph, df = Reels mentioning c).
-A concept is expanded only if spec ≥ min_specificity — i.e. df ≤ N^(1-min_specificity), a cut-off that grows
-with the collection (59 Reels: df ≤ 4 at 0.65; 1,000 Reels: df ≤ 11) — unless the question names it.
-Expanded passages are weighted by their seed: 1.0 for concepts named in the question, boost_weight for
-follow-up referents, the passage similarity for concepts found in the top vector passages.
-
-Exhaustive listing ("Which Reels mention X?", "Which other Reels mention X?") applies only when the question is
-nothing more than that: every valid Reel mentioning the named concept is returned (one passage each, no
-per-concept cap, no relevance gate — the mention is the evidence), and complete=true only if every listed Reel
-has a mentioning passage in the final pack. A question with further constraints ("Which Reel teaches Python
-specifically for coding interviews?") is an ordinary, relevance-filtered question.
-
-Concurrency: retrieval never takes the heavy-model lock; the query embedding only takes the embedder's own lock
-(as Phase 3 search does). Callers must not hold models.heavy() while retrieving.
-"""
+"""Retrieval over the saved Reels: vector-only, graph-only and hybrid modes with weighted rank fusion."""
 from __future__ import annotations
 
 import copy
@@ -58,25 +21,23 @@ _LISTING = re.compile(r"^\s*(?:which|what|list|show me)\s+(?:of\s+(?:my\s+)?(?:s
                       r"use|uses|teach|teaches)\s+(?P<tail>.+?)\s*\??\s*$", re.I)
 _ALLOWED_TAIL = frozenset("and in what which context contexts how way ways this it them that".split())
 
-# Defaults; tuned on the dev questions only (scripts/rag_eval.py tune) and frozen before the held-out run —
-# the frozen copy is fixtures/rag_params.json (min_specificity, w_co_mention, protect_top, reserve_graph were tuned).
 DEFAULTS = {
-    "vector_candidates": 40,      # passages from Chroma
-    "seed_passages": 8,           # top vector passages whose concepts seed the expansion
-    "min_specificity": 0.75,      # corpus-relative specificity floor for expanding a concept
-    "co_mention": True,           # shared-concept expansion (configurable)
-    "relations": True,            # relation-evidence expansion (configurable)
-    "rel_abs": 0.35,              # an expanded passage needs cosine(query, passage) ≥ rel_abs ...
-    "rel_frac": 0.6,              # ... and ≥ rel_frac × the best vector similarity
-    "per_concept_reels": 3,       # ordinary expansion: at most this many new Reels per concept
-    "boost_weight": 0.8,          # seed weight of follow-up referents (subject to the same gates)
+    "vector_candidates": 40,
+    "seed_passages": 8,
+    "min_specificity": 0.75,
+    "co_mention": True,
+    "relations": True,
+    "rel_abs": 0.35,
+    "rel_frac": 0.6,
+    "per_concept_reels": 3,
+    "boost_weight": 0.8,
     "w_vector": 1.0, "w_co_mention": 1.0, "w_relation": 0.6,
     "rrf_k": 60,
-    "protect_top": 2,             # the top vector Reels keep their ranks
-    "reserve_graph": 2,         # pack slots (and their characters) reserved for graph-found passages of other Reels
+    "protect_top": 2,
+    "reserve_graph": 2,
     "max_sources": 12, "per_reel": 3, "context_chars": 9000,
-    "listing_max": 30,            # exhaustive listing: up to this many Reels in the pack
-    "near_duplicate": 0.8,        # token Jaccard above which two passages of one Reel are the same text
+    "listing_max": 30,
+    "near_duplicate": 0.8,
 }
 
 class RetrievalUnavailable(RuntimeError):
@@ -85,17 +46,13 @@ class RetrievalUnavailable(RuntimeError):
 class _GraphFailed(Exception):
     pass
 
-# ---------------------------------------------------------------- graph access (read-only)
-
 class GraphReader:
-    """Read-only graph queries used by retrieval (the same interface is faked in tests)."""
 
     def __init__(self, store=None):
         from .graph.store import Neo4jStore
         self.store = store or Neo4jStore()
 
     def concept_index(self) -> dict:
-        """→ {"n_reels", "concepts": {key: {name, type, df, aliases}}}"""
         rows = self.store.run("""MATCH (c:Concept) OPTIONAL MATCH (c)<-[:MENTIONS]-(p:Passage)
                                  RETURN c.key AS key, c.name AS name, c.type AS type, c.aliases AS aliases,
                                         count(DISTINCT p.reel_id) AS df""")
@@ -119,8 +76,6 @@ class GraphReader:
                               keys=list(keys))
 
     def relations_for_concepts(self, keys: list[str]) -> list[dict]:
-        """Non-rejected assertions touching the keys, each with every non-rejected assertion of the same
-        subject-predicate-object (its potential corroboration) and their evidence locations."""
         return self.store.run("""
             MATCH (s:Concept)<-[:SUBJECT]-(a:Assertion)-[:OBJECT]->(o:Concept), (a)-[:EVIDENCE]->(p:Passage),
                   (r:Reel {reel_id: a.reel_id})
@@ -135,14 +90,12 @@ class GraphReader:
                    collect(DISTINCT {reel_id: b.reel_id, chunk_id: bp.chunk_id, content_hash: br.content_hash,
                                      ready: br.retrieval_ready}) AS support""", keys=list(keys))
 
-# ---------------------------------------------------------------- helpers
-
 @dataclass
 class Cand:
     chunk_id: str
     reel_id: str
     channels: list = field(default_factory=list)
-    ranks: dict = field(default_factory=dict)          # channel → rank (0-based)
+    ranks: dict = field(default_factory=dict)
     similarity: float | None = None
     meta: dict = field(default_factory=dict)
     text: str = ""
@@ -155,9 +108,6 @@ def _words(s: str) -> list[str]:
     return re.findall(r"[\w][\w+#.\-']*[\w+#]|[\w]", s)
 
 def _link(text: str, index: dict) -> list[tuple[str, int, int]]:
-    """(concept key, first word, end word) for concepts named in the text: exact canonical keys of 1-5 word
-    windows (names, aliases, curated synonyms, context-dependent aliases decided by the text's own words).
-    Longest match first; never fuzzy."""
     surf: dict[str, str] = {}
     for key, c in index["concepts"].items():
         for s in [c["name"], *c.get("aliases", [])]:
@@ -191,8 +141,6 @@ def link_concepts(question: str, index: dict) -> list[str]:
     return out
 
 def listing_target(question: str, index: dict) -> list[str]:
-    """Concept keys of an exhaustive listing question, or [] if the question is not purely a listing (e.g. it
-    adds constraints such as 'specifically for coding interviews')."""
     m = _LISTING.match(question)
     if not m:
         return []
@@ -217,11 +165,8 @@ def _cos(q: np.ndarray, v) -> float:
     d = float(np.linalg.norm(q) * np.linalg.norm(v)) or 1.0
     return float(np.dot(q, v) / d)
 
-# ---------------------------------------------------------------- retrieval
-
 def retrieve(question: str, mode: str = "hybrid", options: dict | None = None, graph=None,
              boost_concepts: list[str] | None = None, exclude_reels: list[str] | None = None) -> dict:
-    """→ {mode_requested, mode_used, fallback, intent, sources, reels, concepts, connections, timing, stats, params}"""
     if mode not in MODES:
         raise ValueError(f"mode must be one of {MODES}")
     p = {**DEFAULTS, **(options or {})}
@@ -279,7 +224,7 @@ def retrieve(question: str, mode: str = "hybrid", options: dict | None = None, g
         names: dict[str, str] = {}
         if mode in ("graph", "hybrid"):
             t = time.perf_counter()
-            snapshot = copy.deepcopy(cands)               # genuinely unmodified vector candidates
+            snapshot = copy.deepcopy(cands)
             stats_before = dict(stats)
             try:
                 concepts_out, connections, mentions_of, listed, names = _graph_stage(
@@ -296,7 +241,6 @@ def retrieve(question: str, mode: str = "hybrid", options: dict | None = None, g
                     vector_stage()
             timing["graph_s"] = time.perf_counter() - t
 
-        # --- fusion + ordering
         t = time.perf_counter()
         w = {"semantic": p["w_vector"], "shared_concept": p["w_co_mention"], "relation": p["w_relation"]}
         for c in cands.values():
@@ -333,7 +277,7 @@ def retrieve(question: str, mode: str = "hybrid", options: dict | None = None, g
         timing["rank_s"] = time.perf_counter() - t
     timing["total_s"] = time.perf_counter() - t0
     source_concepts = {s["chunk_id"]: [{"key": k, "name": names.get(k, k)} for k in sorted(mentions_of.get(s["chunk_id"], ()))]
-                       for s in sources}                       # validated mentions of each source in the pack
+                       for s in sources}
     return {"question": question, "mode_requested": mode, "mode_used": mode_used, "fallback": fallback,
             "intent": "listing" if listed else "question", "collection": col_name, "sources": sources,
             "source_concepts": source_concepts, "reels": reels,
@@ -342,7 +286,6 @@ def retrieve(question: str, mode: str = "hybrid", options: dict | None = None, g
             "params": p}
 
 def _graph_stage(question, mode, p, graph, col, state, exclude, cands, add, stats, boost):
-    """All graph work. Any graph failure raises _GraphFailed (the caller restores the vector-only result)."""
     try:
         graph = graph or GraphReader()
         index = graph.concept_index()
@@ -367,7 +310,7 @@ def _graph_stage(question, mode, p, graph, col, state, exclude, cands, add, stat
             return bool(ready) and v is not None and v[1].get("content_hash") == content_hash
 
         seeds: dict[str, float] = {k: 1.0 for k in linked}
-        for k in boost:                                          # follow-up referents: same gates as vector seeds
+        for k in boost:
             if k in index["concepts"]:
                 seeds.setdefault(k, p["boost_weight"])
         if mode == "hybrid":
@@ -376,7 +319,7 @@ def _graph_stage(question, mode, p, graph, col, state, exclude, cands, add, stat
             rows = graph.concepts_for_chunks(list(sim_of))
             fetch(r["chunk_id"] for r in rows)
             for r in rows:
-                if valid(r["chunk_id"], r["content_hash"], r["ready"]):    # stale graph passages never seed
+                if valid(r["chunk_id"], r["content_hash"], r["ready"]):
                     seeds[r["key"]] = max(seeds.get(r["key"], 0.0), sim_of[r["chunk_id"]])
                 else:
                     stats["dropped_not_valid"] += 1
@@ -474,7 +417,6 @@ def _graph_stage(question, mode, p, graph, col, state, exclude, cands, add, stat
                                  "corroborated": "proposed independently in 2+ Reels with valid evidence; not verified",
                                  "verified": "human-verified"}[r["status"]]})
 
-        # valid concept mentions of every candidate passage (co-mentions and listing completeness use these)
         ids = sorted(cands)
         fetch(ids)
         mentions_of: dict[str, set[str]] = {}
@@ -483,22 +425,18 @@ def _graph_stage(question, mode, p, graph, col, state, exclude, cands, add, stat
                 mentions_of.setdefault(r["chunk_id"], set()).add(r["key"])
         names = {k: c["name"] for k, c in index["concepts"].items()}
         return concepts_out, connections, mentions_of, listed, names
-    except Exception as e:  # noqa: BLE001 — Neo4j offline / query failure at any stage
+    except Exception as e:  # noqa: BLE001
         raise _GraphFailed(f"{type(e).__name__}: {e}") from e
 
 def _pack(ordered: list[Cand], p: dict, n_listed: int, protected: list[str], stats: dict) -> list[dict]:
-    """Bounded context pack. Per-Reel cap; only near-identical text of the same Reel is de-duplicated (a caption
-    and a transcript saying different things are both kept). Reserved slots AND their characters go to
-    graph-found passages from Reels OTHER than the protected top vector Reels (complementary evidence, not more
-    of the same Reels). Exhaustive listing: one passage per listed Reel first."""
     listing = n_listed > 0
-    limit = p["max_sources"] + min(n_listed, p["listing_max"])   # room for one passage per listed Reel, no more
+    limit = p["max_sources"] + min(n_listed, p["listing_max"])
     budget = p["context_chars"] * (3 if listing else 1)
     chosen: list[Cand] = []
     per_reel: dict[str, int] = {}
     toks_of: dict[str, list] = {}
     used = {"chars": 0}
-    duplicates: set[int] = set()                                # each rejected passage counted once
+    duplicates: set[int] = set()
 
     def take(c: Cand, cap: int, char_limit: int) -> bool:
         if any(x is c for x in chosen) or per_reel.get(c.reel_id, 0) >= cap:
@@ -523,7 +461,7 @@ def _pack(ordered: list[Cand], p: dict, n_listed: int, protected: list[str], sta
                      and c.reel_id not in protected and not any(x is c for x in chosen)]
     reserve = min(p["reserve_graph"], len(complementary))
     reserve_chars = min(budget // 2, sum(len(c.text) for c in complementary[:reserve]))
-    for c in ordered:                                            # first fill leaves slots + characters free
+    for c in ordered:
         if len(chosen) >= limit - reserve:
             break
         take(c, p["per_reel"], budget - reserve_chars)
@@ -531,7 +469,7 @@ def _pack(ordered: list[Cand], p: dict, n_listed: int, protected: list[str], sta
         if len(chosen) >= limit:
             break
         take(c, p["per_reel"], budget)
-    for c in ordered:                                            # unused reserve: fill normally
+    for c in ordered:
         if len(chosen) >= limit:
             break
         take(c, p["per_reel"], budget)

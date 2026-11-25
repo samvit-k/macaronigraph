@@ -1,25 +1,5 @@
 """Background processing with a crash-safe on-disk spool.
 
-/api/process only *receives* a capture: the upload is written to output/spool/.incoming-<uuid>/, then —
-atomically with respect to reconciliation — the Reel is marked `queued` and the directory is renamed to
-output/spool/<ns>_<rand>/. One worker thread processes jobs oldest-first (ffmpeg → Whisper → OCR →
-record → SQLite), so capturing the next Reel overlaps with processing the previous one.
-
-Durability rules
-  * identity (session_id, reel_id) always comes from meta.json, never from directory names;
-  * mark-`queued` + publish happen under _publish_lock, which reconcile() also takes: reconciliation can
-    never observe a Reel marked `queued` whose job is not yet visible (single backend process);
-  * the built record is checkpointed to record.json BEFORE the SQLite write; the job (and its media) is
-    deleted ONLY after the attempt is persisted. A DB failure keeps the job; retries reuse record.json;
-  * after MAX_PERSIST_FAILURES, or if metadata is unreadable, the job is quarantined in spool/.dead/ and
-    SQLite is reconciled immediately (no Reel stays `queued` without a live job);
-  * quarantine retention: if record.json exists the Instagram audio/frames are deleted at once (the record
-    holds the extracted text); if not, the media is the only recoverable copy and is kept until an
-    explicit `purge-dead` — it is never deleted silently;
-  * recovery is idempotent: half-written uploads are removed, jobs already persisted (crash after commit)
-    are just cleaned up, other jobs resume, orphan `queued` marks are restored;
-  * the worker loop catches everything; a failing job never blocks other due jobs.
-
 CLI:  python -m backend.worker status | retry-dead | purge-dead [--older-than DAYS]
 """
 from __future__ import annotations
@@ -37,13 +17,13 @@ from typing import Callable
 
 from . import config, evalframes, jobs, ocr, record, transcribe
 
-MAX_BACKLOG = 2              # uploads wait (backpressure) while more than this many jobs are spooled
+MAX_BACKLOG = 2
 BACKPRESSURE_TIMEOUT_S = 900
 MAX_PERSIST_FAILURES = 3
 RETRY_BACKOFF_S = 30
 MEDIA = ("audio.webm", "frames")
 _SAFE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
-_publish_lock = threading.RLock()   # mark_queued + publish  vs  reconcile
+_publish_lock = threading.RLock()
 _wake = threading.Event()
 _stop = threading.Event()
 _thread: threading.Thread | None = None
@@ -71,7 +51,6 @@ def pending_jobs() -> list[Path]:
     return sorted(p for p in d.iterdir() if p.is_dir() and not p.name.startswith(".")) if d.exists() else []
 
 def job_identity(job: Path) -> tuple[str, str]:
-    """(session_id, reel_id) from meta.json. Raises if missing/corrupt/unsafe."""
     meta = json.loads((job / "meta.json").read_text())
     return _check(meta.get("session_id"), "session_id"), _check(meta.get("reel_id"), "reel_id")
 
@@ -94,24 +73,21 @@ def find_job(session_id: str | None, reel_id: str | None) -> Path | None:
     return None
 
 def reconcile() -> int:
-    """`queued` Reels with no live job → prior state. Serialized with publication. → Reels restored"""
     with _publish_lock:
         return jobs.restore_orphan_queued(_live_reel_ids())
 
 def _publish(tmp: Path, rid: str, sid: str) -> tuple[Path, dict | None]:
-    """Mark the Reel `queued` and make the job visible, as one step w.r.t. reconcile()."""
     with _publish_lock:
         snapshot = jobs.mark_queued(rid, sid)
         final = spool_dir() / f"{time.time_ns()}_{uuid.uuid4().hex[:8]}"
         try:
-            tmp.rename(final)                                   # atomic publication of a complete job
+            tmp.rename(final)  # atomic publication of a complete job
         except BaseException:
-            jobs.revert_queued(rid, snapshot)                   # exact undo; the session keeps its lease
+            jobs.revert_queued(rid, snapshot)
             raise
     return final, snapshot
 
 def spool(cap: dict, audio_file, frames: list) -> Path:
-    """Persist one capture as a job (see module docstring for the ordering guarantees)."""
     sid, rid = _check(cap.get("session_id"), "session_id"), _check(cap.get("reel_id"), "reel_id")
     spool_dir().mkdir(parents=True, exist_ok=True)
     tmp = spool_dir() / f".incoming-{uuid.uuid4().hex}"
@@ -141,8 +117,6 @@ def _missing_transcript(error: str) -> dict:
             "uncertain_text": "", "segments": [], "rejected_segments": [], "status": "error", "error": error}
 
 def build(job: Path, lookup: PostLookup) -> dict:
-    """Extraction for one job → record (not persisted). Extraction errors become a `processing_error`
-    on the record (a failed, retryable attempt) instead of an exception."""
     cap = json.loads((job / "meta.json").read_text())
     source = cap.pop("source", "test")
     post = lookup(source, cap.get("reel_id"))
@@ -165,7 +139,7 @@ def build(job: Path, lookup: PostLookup) -> dict:
             files = sorted((job / "frames").glob("*.jpg")) if (job / "frames").exists() else []
             batch = [(max(0.0, (w - zero) / 1000), p.read_bytes()) for w, p in zip(walls, files)]
             interval_s = (cap.get("frame_interval_ms") or 1000) / 1000
-            if evalframes.enabled_for(cap.get("reel_id")):  # opt-in debug only; save() re-checks
+            if evalframes.enabled_for(cap.get("reel_id")):
                 try:
                     cap["eval_frames_saved"] = bool(evalframes.save(cap["reel_id"], cap.get("session_id"),
                                                                     batch, interval_s, transcript))
@@ -190,8 +164,7 @@ def _summary(rec: dict, out: dict) -> dict:
             "ocr_segments": len(o.get("segments", []))}
 
 def _failures(job: Path) -> dict:
-    """Failure bookkeeping. Corrupt bookkeeping counts as a failure (so it can still reach quarantine)
-    and is due immediately — it can never park a job forever."""
+    """Corrupt bookkeeping counts as a failure and is due immediately, so it can never park a job forever."""
     try:
         f = json.loads((job / "failures.json").read_text())
         return {"count": int(f["count"]), "last": float(f["last"]), "errors": list(f.get("errors", []))}
@@ -203,8 +176,6 @@ def _failures(job: Path) -> dict:
 VALID_STATUSES = {"ok", "ok_no_speech", "partial", "failed"}
 
 def valid_checkpoint(job: Path) -> bool:
-    """record.json parses into a recoverable extracted record with well-typed core fields (not merely:
-    the file exists). Only then may quarantine drop the original media."""
     try:
         rec = json.loads((job / "record.json").read_text())
     except Exception:  # noqa: BLE001
@@ -221,7 +192,7 @@ def valid_checkpoint(job: Path) -> bool:
             and (rec.get("ocr") is None or isinstance(rec["ocr"], dict)))
 
 def _set_aside_corrupt_checkpoint(job: Path) -> bool:
-    """A present-but-invalid record.json is kept as record.json.corrupt (evidence) so it is never reused."""
+    """An invalid record.json is kept as record.json.corrupt (evidence) and never reused."""
     p = job / "record.json"
     if p.exists() and not valid_checkpoint(job):
         p.rename(job / "record.json.corrupt")
@@ -229,9 +200,6 @@ def _set_aside_corrupt_checkpoint(job: Path) -> bool:
     return False
 
 def _quarantine(job: Path, reason: str) -> Path:
-    """Move a job to spool/.dead, apply the retention policy, and reconcile SQLite immediately.
-    Media is deleted only if a VALID checkpoint holds the extracted record; otherwise it is the only
-    recoverable copy and is kept."""
     dead_dir().mkdir(parents=True, exist_ok=True)
     _set_aside_corrupt_checkpoint(job)
     has_record = valid_checkpoint(job)
@@ -240,22 +208,20 @@ def _quarantine(job: Path, reason: str) -> Path:
         "media": "deleted (extracted record kept)" if has_record else "kept: only recoverable copy"}, indent=1))
     target = dead_dir() / job.name
     job.rename(target)
-    if has_record:  # the record already holds the extracted text → don't retain Instagram media
+    if has_record:  # the record already holds the extracted text, so the Instagram media is not retained
         for m in MEDIA:
             p = target / m
             shutil.rmtree(p, ignore_errors=True) if p.is_dir() else p.unlink(missing_ok=True)
     try:
         reconcile()
-    except Exception:  # noqa: BLE001 — DB down: recover()/next quarantine reconciles later
+    except Exception:  # noqa: BLE001
         pass
     return target
 
 def process_job(job: Path, lookup: PostLookup) -> dict | None:
-    """Build (or reuse the checkpointed) record, persist it, and only then delete the job.
-    → summary, or None if persistence failed (job kept for retry, or quarantined)."""
     checkpoint = job / "record.json"
     if checkpoint.exists():
-        rec = json.loads(checkpoint.read_text())          # extraction already done: don't redo it
+        rec = json.loads(checkpoint.read_text())
     else:
         rec = build(job, lookup)
         tmp = checkpoint.with_suffix(".tmp")
@@ -263,14 +229,14 @@ def process_job(job: Path, lookup: PostLookup) -> dict | None:
         tmp.rename(checkpoint)
     try:
         out = jobs.record_attempt(rec)
-    except Exception as e:  # noqa: BLE001 — DB failure: keep the job and its media
+    except Exception as e:  # noqa: BLE001
         f = _failures(job)
         f.update(count=f["count"] + 1, last=time.time(), errors=(f["errors"] + [f"{type(e).__name__}: {e}"])[-5:])
         (job / "failures.json").write_text(json.dumps(f))
         if f["count"] >= MAX_PERSIST_FAILURES:
             _quarantine(job, f"persist failed {f['count']}x: {f['errors']}")
         return None
-    shutil.rmtree(job, ignore_errors=True)                # persisted → media can go
+    shutil.rmtree(job, ignore_errors=True)
     return _summary(rec, out)
 
 def _due(job: Path) -> bool:
@@ -278,7 +244,6 @@ def _due(job: Path) -> bool:
     return f["count"] == 0 or time.time() - f["last"] >= RETRY_BACKOFF_S
 
 def run_once(lookup: PostLookup) -> bool:
-    """Process the oldest *due* job (jobs in back-off are skipped, never blocking others). Never raises."""
     for job in pending_jobs():
         try:
             if not _due(job):
@@ -289,7 +254,7 @@ def run_once(lookup: PostLookup) -> bool:
                 _quarantine(job, f"unreadable job metadata: {type(e).__name__}: {e}")
                 return True
             process_job(job, lookup)
-        except Exception as e:  # noqa: BLE001 — e.g. corrupt record.json: quarantine, keep going
+        except Exception as e:  # noqa: BLE001
             try:
                 if job.exists():
                     _quarantine(job, f"worker error: {type(e).__name__}: {e}\n{traceback.format_exc()[-2000:]}")
@@ -305,7 +270,7 @@ def drain(lookup: PostLookup, max_jobs: int | None = None) -> int:
     return n
 
 def recover() -> dict:
-    """Startup recovery after a crash/restart (call before accepting uploads). Idempotent."""
+    """Startup crash recovery; call before accepting uploads. Idempotent."""
     d = spool_dir()
     partial = list(d.glob(".incoming-*")) if d.exists() else []
     for p in partial:
@@ -318,7 +283,7 @@ def recover() -> dict:
             _quarantine(job, f"unreadable job metadata at recovery: {type(e).__name__}: {e}")
             quarantined += 1
             continue
-        if jobs.existing_attempt(sid, rid):   # crash after commit: already persisted → just clean up
+        if jobs.existing_attempt(sid, rid):  # crash after commit: already persisted, so just clean up
             shutil.rmtree(job, ignore_errors=True)
             committed += 1
             continue
@@ -331,7 +296,7 @@ def _loop(lookup: PostLookup) -> None:
     while not _stop.is_set():
         try:
             handled = run_once(lookup)
-        except Exception:  # noqa: BLE001 — the thread must survive
+        except Exception:  # noqa: BLE001
             handled = False
         if not handled:
             _wake.wait(timeout=2.0)
@@ -354,8 +319,7 @@ def alive() -> bool:
     return _thread is not None and _thread.is_alive()
 
 def ensure_capacity(timeout_s: float | None = None, poll_s: float = 1.0) -> int:
-    """Wait while the backlog exceeds MAX_BACKLOG; if still excessive after `timeout_s`, refuse
-    (Overloaded): the caller must not accept the upload. → backlog when capacity is available"""
+    """If the backlog is still excessive after timeout_s, raise Overloaded: the caller must not accept the upload."""
     timeout_s = BACKPRESSURE_TIMEOUT_S if timeout_s is None else timeout_s
     deadline = time.time() + timeout_s
     while (n := len(pending_jobs())) > MAX_BACKLOG:
@@ -363,8 +327,6 @@ def ensure_capacity(timeout_s: float | None = None, poll_s: float = 1.0) -> int:
             raise Overloaded(f"{n} jobs still queued after {timeout_s:.0f}s (max {MAX_BACKLOG})")
         time.sleep(poll_s)
     return n
-
-# ---------------------------------------------------------------- quarantine maintenance (explicit only)
 
 def dead_jobs() -> list[dict]:
     out = []
@@ -379,7 +341,6 @@ def dead_jobs() -> list[dict]:
     return out
 
 def retry_dead() -> int:
-    """Move quarantined jobs that still have readable metadata back into the spool."""
     n = 0
     for p in sorted(dead_dir().iterdir()) if dead_dir().exists() else []:
         try:
@@ -388,7 +349,7 @@ def retry_dead() -> int:
             continue
         for f in ("failures.json", "QUARANTINED.txt"):
             (p / f).unlink(missing_ok=True)
-        _set_aside_corrupt_checkpoint(p)   # never reuse a corrupt checkpoint: rebuild from media instead
+        _set_aside_corrupt_checkpoint(p)  # never reuse a corrupt checkpoint: rebuild from media instead
         with _publish_lock:
             jobs.mark_queued(rid, sid)
             p.rename(spool_dir() / p.name)
@@ -397,7 +358,6 @@ def retry_dead() -> int:
     return n
 
 def purge_dead(older_than_days: float) -> int:
-    """Explicitly delete quarantined media older than N days (keeps record.json + diagnostics)."""
     n, cutoff = 0, time.time() - older_than_days * 86400
     for p in sorted(dead_dir().iterdir()) if dead_dir().exists() else []:
         if p.stat().st_mtime <= cutoff:

@@ -1,6 +1,4 @@
-// Interactive canvas. The Cytoscape lifecycle, dot background tied to the viewport, hover hints, invisible wide
-// hit-edges, autofit around the legend and focus-on-selection are taken from the SanD Hacks GraphCanvas; the element
-// model, layout and selection kinds are MacaroniGraph's (Reel / concept / mention / assertion).
+// Interactive Cytoscape canvas: layout, hover hints, selection focus, search dimming and answer highlights.
 import cytoscape from 'cytoscape'
 import { useEffect, useRef, useState } from 'react'
 import { computeLayout } from '../graph/layout.js'
@@ -13,7 +11,6 @@ import ZoomControls from './ZoomControls.jsx'
 const DOT_SPACING = 22
 const VIEW_MS = 220
 
-/** Label sizes for the single visible label (hover / selection): constant on screen at any zoom. */
 export function labelScale(cy) {
   const z = cy.zoom() || 1
   cy.batch(() => cy.nodes().data({ lfs: 13 / z, lpad: 3 / z, lbw: 1 / z }))
@@ -27,7 +24,6 @@ function legendRect(container) {
   return { left: r.left - c.left, right: r.right - c.left, top: r.top - c.top, bottom: r.bottom - c.top, width: r.width, height: r.height }
 }
 
-/** App selection ({kind, ...}) → Cytoscape element id. */
 export function elementIdFor(sel) {
   if (!sel) return null
   if (sel.kind === 'reel') return reelId(sel.id)
@@ -46,7 +42,6 @@ export function selectionFor(ele) {
   return null
 }
 
-// Hover hints name only the KIND of item (the colour already shows it); details appear on click.
 function tipText(ele) {
   const d = ele.data()
   if (d.kind === 'mention') return 'Mention · Not a Relationship · Click for Evidence'
@@ -70,10 +65,10 @@ export default function GraphCanvas({ model, hidden, matches, selection, highlig
     const cy = cytoscape({
       container: containerRef.current, style: buildStyle(), minZoom: GRAPH_MIN_ZOOM, maxZoom: GRAPH_MAX_ZOOM,
       wheelSensitivity: 0.25, boxSelectionEnabled: false, selectionType: 'single',
-      // nodes are always drawn above edges (edge z-indexes stay below the node z-index)
+
     })
     cyRef.current = cy
-    // Browser tests (frontend/e2e) read node positions; only exposed when the page is opened with ?e2e.
+    // Browser tests read node positions; exposed only when the page is opened with ?e2e.
     if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('e2e')) window.__mgCy = cy
     let frame = 0
     cy.on('viewport', () => {
@@ -125,7 +120,6 @@ export default function GraphCanvas({ model, hidden, matches, selection, highlig
     }
   }, [])
 
-  // Rebuild on model change; kept nodes glide from their old to their new position.
   useEffect(() => {
     const cy = cyRef.current
     if (!cy) return undefined
@@ -157,7 +151,6 @@ export default function GraphCanvas({ model, hidden, matches, selection, highlig
     cy.batch(() => cy.elements().forEach((e) => e.toggleClass('hidden', hidden?.has(e.id()) ?? false)))
   }, [model, hidden])
 
-  // Selection focus, search matches and answer highlights.
   useEffect(() => {
     const cy = cyRef.current
     if (!cy) return
@@ -178,11 +171,11 @@ export default function GraphCanvas({ model, hidden, matches, selection, highlig
         cy.elements().not(keep).addClass('faded')
         keep.removeClass('faded')
       } else if (cited.nonempty() && !matches?.size) {
-        // answer highlight: dim everything except the cited Reels/concepts and the edges between them
+
         const keep = cited.union(cited.edgesWith(cited))
         cy.elements().not(keep).addClass('faded')
       }
-      cited.removeClass('faded') // cited nodes are never dimmed
+      cited.removeClass('faded')
     })
     const hKey = Object.keys(highlight ?? {}).sort().join('|')
     if (hKey && hKey !== lastHighlight.current && !(sel && sel.nonempty())) {
@@ -194,7 +187,7 @@ export default function GraphCanvas({ model, hidden, matches, selection, highlig
       }
     }
     if (!hKey) lastHighlight.current = ''
-    // A selection made on the canvas is not re-centred, unless the floating inspector card would cover it.
+
     let covered = false
     if (sel && sel.nonempty() && !selection?.focus) {
       const card = containerRef.current?.closest('.stage')?.querySelector('.inspector')

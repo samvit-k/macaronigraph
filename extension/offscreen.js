@@ -1,6 +1,4 @@
-// Holds ONE tab MediaStream for the whole session (it survives navigations of the captured tab).
-// Per item: MediaRecorder on the audio track + timed JPEG frame sampler, all in memory.
-// Nothing is written to disk here; blobs are uploaded to the local backend and dropped.
+// Holds one tab MediaStream for the whole session; records audio and samples JPEG frames in memory only.
 /* global cropPx */
 const API = "http://localhost:8765";
 const ENCODE_TIMEOUT_MS = 3000;
@@ -45,7 +43,7 @@ function streamLive() {
 
 function sampleFrame(it) {
   const wall = Date.now();
-  const fw = video.videoWidth, fh = video.videoHeight;  // actual current stream frame size
+  const fw = video.videoWidth, fh = video.videoHeight;
   if (!fw || !fh) { it.skipped.push("no_frame_size"); return; }
   const c = it.crop ? cropPx(fw, fh, it.crop.viewport, it.crop.rect) : { x: 0, y: 0, w: fw, h: fh };
   if (c.w < 8 || c.h < 8) { it.skipped.push(`crop_too_small:${c.w}x${c.h}`); return; }
@@ -92,14 +90,14 @@ async function endItem({ meta, upload }) {
   if (it.recorder && it.recorder.state !== "inactive") {
     await new Promise((r) => { it.recorder.onstop = r; it.recorder.stop(); });
   }
-  // Wait for every in-flight JPEG encode; whatever misses the deadline is reported as dropped.
+
   const inflight = [...it.pending];
   let timedOut = false;
   await Promise.race([
     Promise.allSettled(inflight),
     new Promise((r) => setTimeout(() => { timedOut = true; r(); }, ENCODE_TIMEOUT_MS)),
   ]);
-  const frames = it.frames.slice().sort((a, b) => a.wall - b.wall); // snapshot: late arrivals excluded
+  const frames = it.frames.slice().sort((a, b) => a.wall - b.wall);
   const dropped = timedOut ? it.pending.size : 0;
   const walls = frames.map((f) => f.wall);
   const audioBlob = it.chunks.length ? new Blob(it.chunks, { type: "audio/webm" }) : null;
@@ -128,7 +126,7 @@ async function endItem({ meta, upload }) {
   fd.append("meta", JSON.stringify(fullMeta));
   if (upload && audioBlob) fd.append("audio", audioBlob, "audio.webm");
   if (upload) frames.forEach((f, i) => fd.append("frames", f.blob, `f${i}.jpg`));
-  it.chunks.length = 0; it.frames.length = 0; // drop references; nothing persisted client-side
+  it.chunks.length = 0; it.frames.length = 0;
   const res = await fetch(`${API}/api/process`, { method: "POST", body: fd });
   if (!res.ok) return { ok: false, error: `backend ${res.status}: ${await res.text()}` };
   const { frame_walls, ...summary } = fullMeta; // eslint-disable-line no-unused-vars

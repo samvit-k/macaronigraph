@@ -1,4 +1,4 @@
-// Top bar (SanD Hacks layout): brand + what the canvas shows, live status, search, filters, chat toggle.
+// Top bar: brand, graph summary, live status, search, filters and chat toggle.
 import FilterPopover from './FilterPopover.jsx'
 import SearchBox from './SearchBox.jsx'
 

@@ -1,6 +1,4 @@
-"""FastAPI backend: capture processing (Phase 1) + SQLite job tracking (Phase 2) + semantic search (Phase 3)
-+ knowledge graph (Phase 4A) + retrieval and local answers, chat page at /app (Phase 4B)
-+ MacaroniGraph workspace at /workspace/ and local welcome page at /welcome (Phase 5).
+"""FastAPI backend: capture uploads, job status, search, knowledge graph, answers, workspace and welcome page.
 
 Run:  .venv/bin/uvicorn backend.app:app --port 8765     (uvicorn binds 127.0.0.1 by default; keep it local)
 """
@@ -39,9 +37,9 @@ def _lookup(source: str, reel_id: str | None) -> dict | None:
 async def lifespan(_app):
     if config.ASYNC_PROCESSING:  # crash recovery runs before any upload is accepted
         print(f"[worker] started; recovery: {worker.start(_lookup)}", file=sys.stderr)
-        indexer.start()  # indexes only while capture + processing are idle (INDEX_AUTO); manual sync anytime
-        _graph_call("start")  # knowledge graph: optional, idle-gated; Neo4j offline never affects the backend
-        _answers_call("start")  # Phase 4B: deferred answer generation (expires queued turns of a previous run)
+        indexer.start()
+        _graph_call("start")
+        _answers_call("start")
     yield
     if config.ASYNC_PROCESSING:
         _answers_call("stop")
@@ -50,7 +48,7 @@ async def lifespan(_app):
     worker.stop()
     try:
         from . import models
-        models.shutdown()                   # free the shared local LLM (waits for a running generation)
+        models.shutdown()
     except Exception as e:  # noqa: BLE001
         print(f"[models] shutdown failed: {type(e).__name__}: {e}", file=sys.stderr)
 
@@ -58,7 +56,7 @@ def _answers_call(fn: str):
     try:
         from . import ask
         return getattr(ask, fn)()
-    except Exception as e:  # noqa: BLE001 — answers are optional; retrieval and the backend keep working
+    except Exception as e:  # noqa: BLE001
         print(f"[answers] {fn} failed: {type(e).__name__}: {e}", file=sys.stderr)
         return None
 
@@ -66,7 +64,7 @@ def _graph_call(fn: str):
     try:
         from .graph import sync as graph_sync
         return getattr(graph_sync, fn)()
-    except Exception as e:  # noqa: BLE001 — the graph is optional
+    except Exception as e:  # noqa: BLE001
         print(f"[graph] {fn} failed: {type(e).__name__}: {e}", file=sys.stderr)
         return None
 
@@ -87,23 +85,20 @@ def _index_summary() -> dict:
     try:
         return {"active": indexer.active_collection(), "build": (indexer._meta_json(indexer.K_BUILD) or {}).get("state"),
                 "running": indexer._state["running"], "busy": indexer._state["busy"]}
-    except Exception as e:  # noqa: BLE001 — health must never fail because of the index
+    except Exception as e:  # noqa: BLE001
         return {"error": str(e)}
 
 @app.get("/api/session")
 def session(source: str = "test", limit: int = 3, offset: int = 0, mode: str = "pending"):
-    """Create a processing session: lease the next Reels from the job store and return their URLs.
-    mode=pending → only pending / retryable Reels (resume); mode=all → reprocess everything."""
     if source not in SOURCES:
         raise HTTPException(400, f"source must be one of {list(SOURCES)}")
     if mode not in ("pending", "all", "eval"):
         raise HTTPException(400, "mode must be 'pending', 'all' or 'eval'")
-    jobs.import_posts(source, list(_posts(source).values()))  # idempotent; never resets job state
+    jobs.import_posts(source, list(_posts(source).values()))
     sid = f"{source}-{uuid.uuid4().hex[:8]}"
-    ids = evalframes.selection() if mode == "eval" else None  # empty selection → empty queue
+    ids = evalframes.selection() if mode == "eval" else None
     out = {"session_id": sid, "source": source, "mode": mode,
            "items": jobs.create_session(sid, source, limit, offset, mode, reel_ids=ids)}
-    # Manifest of what this run is expected to process (used to verify completeness afterwards).
     sessions = config.OUTPUT_DIR / "sessions"
     sessions.mkdir(parents=True, exist_ok=True)
     (sessions / f"{sid}.json").write_text(json.dumps(out, indent=1))
@@ -119,7 +114,6 @@ def session_finish(session_id: str, reason: str = "finished"):
 
 @app.get("/api/session/{session_id}/status")
 def session_status(session_id: str):
-    """Capture finished? Uploads still queued/processing? (the extension waits for queued == 0)"""
     return {**jobs.session_progress(session_id), "backlog": len(worker.pending_jobs())}
 
 @app.get("/api/status")
@@ -129,9 +123,6 @@ def job_status(source: str | None = None):
 @app.post("/api/process")
 def process(meta: str = Form(...), audio: UploadFile | None = File(None),
             frames: list[UploadFile] = File(default_factory=list)):
-    """One captured item (audio webm/opus + sampled JPEG frames + capture metadata).
-    Async mode: spooled and processed by the background worker (response: status "queued"); 503 if the
-    backlog stays excessive. Sync mode: processed inline. Spooled media is deleted once persisted."""
     try:
         cap = json.loads(meta)
     except json.JSONDecodeError as e:
@@ -141,15 +132,15 @@ def process(meta: str = Form(...), audio: UploadFile | None = File(None),
         cap.setdefault("session_id", f"nosession-{uuid.uuid4().hex[:8]}")
         sid, rid = cap.get("session_id"), cap.get("reel_id")
         prior = jobs.existing_attempt(sid, rid)
-        if prior:  # repeated upload for the same session+Reel: do not reprocess or double count
+        if prior:
             return {"reel_id": rid, "status": prior["status"], "errors": json.loads(prior["errors"]),
                     "duplicate": True, "attempt_id": prior["attempt_id"]}
-        if worker.find_job(sid, rid):  # same upload already waiting in the spool
+        if worker.find_job(sid, rid):
             return {"reel_id": rid, "status": "queued", "errors": [], "duplicate": True, "queued": True}
         if config.ASYNC_PROCESSING:
             try:
                 backlog = worker.ensure_capacity()
-            except worker.Overloaded as e:  # refuse BEFORE accepting anything: nothing is spooled
+            except worker.Overloaded as e:
                 raise HTTPException(503, f"backend overloaded: {e}")
         try:
             job = worker.spool(cap, audio.file if audio else None, [f.file for f in frames])
@@ -161,27 +152,22 @@ def process(meta: str = Form(...), audio: UploadFile | None = File(None),
     if config.ASYNC_PROCESSING:
         return {"reel_id": rid, "status": "queued", "errors": [], "queued": True, "duplicate": False,
                 "backlog": backlog + 1}
-    out = worker.process_job(job, _lookup)  # synchronous mode: same code path, inline
+    out = worker.process_job(job, _lookup)
     if out is None:
         raise HTTPException(500, "capture spooled but could not be persisted; it will be retried")
     return out
 
 @app.get("/api/results")
 def results(session_id: str | None = None):
-    """Attempt history (from SQLite), optionally for one session."""
     with jobs.connect() as con:
         q = "SELECT attempt_id, reel_id, session_id, processed_at, status, outcome, errors FROM attempts"
         rows = con.execute(q + (" WHERE session_id=?" if session_id else "") + " ORDER BY attempt_id",
                            (session_id,) if session_id else ()).fetchall()
     return [{**dict(r), "errors": json.loads(r["errors"] or "[]")} for r in rows]
 
-# ---------- Phase 3: semantic search ----------
-
 @app.get("/api/search")
 def search(q: str = Query(..., min_length=1, max_length=1000), k: int = Query(10, ge=1, le=50),
            source: str = "instagram", types: str | None = None, group: str = "reel"):
-    """Semantic search over indexed Reels. types: comma list of caption, transcript, ocr (= all on-screen
-    kinds), ocr_title, ocr_screen, ocr_fragment. group: reel (best passages per Reel) | none (raw passages)."""
     if group not in ("reel", "none"):
         raise HTTPException(400, "group must be 'reel' or 'none'")
     kinds = [t.strip() for t in types.split(",") if t.strip()] if types else None
@@ -198,13 +184,10 @@ def index_status():
 
 @app.post("/api/index/sync")
 def index_sync(rebuild: bool = False, wait: bool = False):
-    """Manual sync (always allowed, also during capture). wait=1 runs it inline and returns the result."""
     try:
         return indexer.request_sync(rebuild=rebuild, wait=wait)
     except indexer.WriterBusy as e:
         raise HTTPException(409, str(e))
-
-# ---------- Phase 4A: knowledge graph (optional; 503 when Neo4j is offline) ----------
 
 @contextmanager
 def _graph_store():
@@ -229,8 +212,6 @@ def graph_status():
 
 @app.post("/api/graph/sync")
 def graph_sync(force: bool = False, wait: bool = False):
-    """Manual graph sync. Cached extractions are always written; new LLM extraction runs only while capture and
-    processing are idle, unless force=1. wait=1 runs it now (or reports busy)."""
     from .graph import sync as gs
     return gs.request_sync(force=force, wait=wait)
 
@@ -262,8 +243,6 @@ def graph_shared(min_reels: int = Query(2, ge=1), limit: int = Query(50, ge=1, l
 def graph_between(a: str = Query(..., min_length=1), b: str = Query(..., min_length=1), include_rejected: bool = False):
     return _graph("between", a, b, include_rejected=include_rejected)
 
-# ---------- Phase 5: read-only views for the MacaroniGraph workspace (additive; see backend/graph/view.py) ----------
-
 def _view(fn, *args, **kw):
     from .graph import view as gv
     try:
@@ -294,8 +273,6 @@ def graph_search(q: str = Query(..., min_length=1, max_length=200), limit: int =
 def graph_evidence(a: str = Query(..., min_length=1), b: str = Query(..., min_length=1), include_rejected: bool = False):
     return _graph("evidence", a, b, include_rejected=include_rejected)
 
-# ---------- Phase 4B: retrieval + local answers ----------
-
 class AskBody(BaseModel):
     question: str = Field(..., min_length=1, max_length=2000)
     conversation_id: str | None = None
@@ -303,12 +280,10 @@ class AskBody(BaseModel):
     generate: bool = True
     options: dict | None = None
 
-_ASK_OPTIONS = {"co_mention", "relations", "max_sources"}      # public knobs; tuning parameters stay internal
+_ASK_OPTIONS = {"co_mention", "relations", "max_sources"}
 
 @app.post("/api/ask")
 def ask_endpoint(body: AskBody):
-    """Vector, graph or hybrid retrieval (always returned) + a validated local answer, or a deferred request id
-    while capture/processing are active. Graph unavailable → vector retrieval, reported in `fallback`."""
     from . import ask, rag
     opts = {k: v for k, v in (body.options or {}).items() if k in _ASK_OPTIONS}
     if "max_sources" in opts:
@@ -344,7 +319,6 @@ def conversation_get(conversation_id: str):
 
 @app.delete("/api/conversations")
 def conversations_clear():
-    """Phase 5 (additive): delete ALL conversations, including the one currently open. Reel data is untouched."""
     from . import conversations
     return {"deleted": conversations.delete_all()}
 
@@ -360,12 +334,8 @@ def conversation_delete(conversation_id: str):
 def legacy_app_redirect(path: str = ""):
     return RedirectResponse("/workspace/")
 
-# ---------- Phase 5: MacaroniGraph workspace + local welcome page ----------
-
-WORKSPACE_DIR = Path(__file__).with_name("static") / "workspace"     # built by `npm run build` in frontend/
+WORKSPACE_DIR = Path(__file__).with_name("static") / "workspace"
 EXTENSION_DIR = Path(__file__).resolve().parent.parent / "extension"
-# Explicit allowlist of the files the extension needs (manifest + what it references). Nothing else — no local data,
-# alternate manifests, dotfiles or development artefacts — can ever end up in the download.
 EXTENSION_FILES = (
     "manifest.json", "background.js", "content.js", "crop.js", "offscreen.html", "offscreen.js",
     "ui/popup.html", "ui/popup.css", "ui/popup.js", "ui/logo.svg",
@@ -400,8 +370,6 @@ def workspace_redirect():
 
 if WORKSPACE_DIR.is_dir():
     app.mount("/workspace", StaticFiles(directory=str(WORKSPACE_DIR), html=True), name="workspace")
-
-# ---------- start page + permitted test media ----------
 
 @app.get("/", response_class=HTMLResponse)
 def index():

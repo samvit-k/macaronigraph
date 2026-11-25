@@ -1,3 +1,4 @@
+// Workspace shell: graph canvas, inspector, legend and assistant panel, and the wiring between them.
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import AssistantPanel from './components/assistant/AssistantPanel.jsx'
 import { citationMap } from './components/assistant/ChatMessage.jsx'
@@ -70,16 +71,14 @@ export default function App() {
   const turn = chat.turns.find((t) => t.turn_id === highlightTurn) ?? null
   const highlight = useMemo(() => answerHighlight(turn), [turn])
 
-  // Becoming narrow turns the chat into an overlay drawer: close it so it never covers the canvas unasked.
   useEffect(() => { if (narrow) setChatOpen(false) }, [narrow])
 
-  // A conversation switch drops the highlight of an answer that is no longer shown.
   useEffect(() => { setHighlightTurn(null) }, [chat.id])
 
   const ensureLoaded = useCallback(async (kind, id) => {
     const present = kind === 'reel' ? model.reels[id] : model.concepts[id]
     if (!present) {
-      try { await graph.expand(kind, id) } catch { /* inspector shows the error */ }
+      try { await graph.expand(kind, id) } catch {  }
     }
   }, [graph, model])
 
@@ -97,20 +96,20 @@ export default function App() {
 
   const onPick = useCallback(async (hit) => {
     setQuery('')
-    try { await graph.expand(hit.kind, hit.id) } catch { /* shown in the inspector */ }
+    try { await graph.expand(hit.kind, hit.id) } catch {  }
     setSelection({ kind: hit.kind, id: hit.id, focus: true })
   }, [graph])
 
   const highlightAnswer = useCallback(async (t) => {
     if (highlightTurn === t.turn_id) { setHighlightTurn(null); return }
-    setSelection(null) // a selection would dim the highlighted nodes
+    setSelection(null)
     setHighlightTurn(t.turn_id)
-    // Cited concepts are only drawn if loaded: expand the cited Reels whose concepts are not on the canvas yet.
+
     const missing = new Set((t.cited_concepts ?? []).filter((c) => !model.concepts[c.key]).map((c) => c.key))
     const reels = [...new Set((t.citations ?? []).map((c) => c.reel_id))]
     for (const rid of reels) {
       if (!model.reels[rid] || (missing.size && !model.expanded[reelId(rid)])) {
-        try { await graph.expand('reel', rid) } catch { /* graph offline: highlight what is there */ }
+        try { await graph.expand('reel', rid) } catch {  }
       }
     }
   }, [graph, highlightTurn, model])
@@ -120,7 +119,7 @@ export default function App() {
     const source = (t.sources ?? []).find((s) => s.sid === sid)
     setHighlightTurn(t.turn_id)
     if (citation?.reel_id && !model.reels[citation.reel_id] && graph.status === 'ready') {
-      try { await graph.expand('reel', citation.reel_id) } catch { /* ignore */ }
+      try { await graph.expand('reel', citation.reel_id) } catch {  }
     }
     setSelection({ kind: 'source', sid, citation, source, turnId: t.turn_id })
   }, [graph, model])

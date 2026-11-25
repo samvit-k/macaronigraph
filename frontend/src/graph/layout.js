@@ -1,8 +1,4 @@
-// Deterministic force layout for an interconnected Reel–Concept graph (replaces the SanD Hacks radial
-// question → paper → claim hierarchy, which does not fit this data). Reels are seeded on a sunflower spiral and act as
-// charged anchors; each concept starts at the centroid of the Reels that mention it, so shared ("bridge") concepts
-// settle between their Reels and single-Reel concepts fan out around theirs. d3-force v3 is deterministic for the
-// same input, and previous positions are reused, so expansions grow in place instead of reshuffling the canvas.
+// Deterministic d3-force layout: Reels anchor the canvas, and kept nodes start from their previous positions.
 import { forceCollide, forceLink, forceManyBody, forceSimulation, forceX, forceY } from 'd3-force'
 
 const TICKS = 320
@@ -14,11 +10,6 @@ function hash(s) {
   return (h >>> 0) / 4294967296
 }
 
-/**
- * @param elements  {nodes, edges} from buildElements()
- * @param prev      {id: {x, y}} from the previous render (kept nodes start there)
- * @returns {id: {x, y}}
- */
 export function computeLayout(elements, prev = {}) {
   const nodes = (elements?.nodes ?? []).map((n) => n.data)
   if (!nodes.length) return {}

@@ -1,6 +1,4 @@
-// Thin client for the local MacaroniGraph backend (same origin: the backend serves this app at /workspace/).
-// Errors carry the HTTP status so the UI can tell "graph offline" (503) from other failures.
-
+// Same-origin client for the local backend; errors carry the HTTP status so the UI can tell 503 (graph offline) apart.
 export class ApiError extends Error {
   constructor(message, status = 0, detail = null) {
     super(message)

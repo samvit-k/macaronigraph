@@ -24,8 +24,7 @@ def _print(obj) -> None:
     print(json.dumps(obj, indent=1, ensure_ascii=False, default=str))
 
 def candidates(store: Neo4jStore, threshold: float = 0.9) -> list[dict]:
-    """Concept-name pairs whose Qwen3 embeddings are very similar. Suggestions for aliases.json only — the graph
-    is never changed by this (similarity is not evidence)."""
+    """Suggestions for aliases.json only: similarity is not evidence, and the graph is never changed."""
     import numpy as np
 
     from .. import embedder
@@ -69,7 +68,6 @@ def _review(store, args):
     except gs.SyncBusy as e:
         _print({"review": args[1], "reel_id": rid, "applied": False, "note": f"{e}; applied on the next sync"})
 
-# command -> (argument check, handler(store, args) -> exit code or None)
 COMMANDS = {
     "status": (lambda a: True, lambda s, a: _print(q.status(s))),
     "sync": (lambda a: True, _sync),

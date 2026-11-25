@@ -1,10 +1,8 @@
+// Vite build: workspace and welcome pages into backend/static/workspace; dev server proxies to the local backend.
 import { resolve } from 'node:path'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// Two pages: the workspace (index.html, served at /workspace/) and the local welcome page (welcome.html, served at
-// /welcome). The build goes straight into the backend's static folder, so the backend serves it without Node.
-// During `npm run dev`, /api and /welcome/extension.zip are proxied to the local backend on 127.0.0.1:8765.
 export default defineConfig({
   base: '/workspace/',
   plugins: [react()],

@@ -1,16 +1,9 @@
-"""Phase 4C answer evaluation. Read-only w.r.t. production data (reads canonical records, the active Chroma
-collection and Neo4j; evaluation conversations go to a scratch database).
+"""Answer evaluation over private question sets, read-only with respect to production data.
 
-  .venv/bin/python scripts/answer_eval.py packs --set v2dev --out reports/phase4c/packs_v2dev.json
-  .venv/bin/python scripts/answer_eval.py run --set v2dev --config E0 --packs reports/phase4c/packs_v2dev.json \
-        --out reports/phase4c/experiments/E0_v2dev.json
-  .venv/bin/python scripts/answer_eval.py run --set v2heldout --final ...      (only after the set is approved)
-
-Sets: v1dev (fixtures/rag_questions.json, dev split — frozen), v2dev, v2heldout (sealed: refused unless --final AND
-fixtures/rag_questions_v2_heldout.seal.json records your approval and the file's current sha256).
-Single-turn items are generated over CACHED evidence packs (identical for every configuration and model);
-multi-turn items run end to end (rewriting changes retrieval), in a scratch conversation database.
-Retrieval parameters are the frozen Phase 4B defaults (rag.DEFAULTS == fixtures/rag_params.json).
+Usage:
+  .venv/bin/python scripts/answer_eval.py packs --set v2dev --out packs.json
+  .venv/bin/python scripts/answer_eval.py run --set v2dev --config D6 --packs packs.json --out run.json
+  .venv/bin/python scripts/answer_eval.py run --set v3heldout --config D6 --final --out run.json   (sealed sets only after approval)
 """
 from __future__ import annotations
 
@@ -39,8 +32,6 @@ SEAL = ROOT / "fixtures" / "rag_questions_v2_heldout.seal.json"
 SEAL3 = ROOT / "fixtures" / "rag_questions_v3_heldout.seal.json"
 V1_SHA = "0c2950f727744fead718ed0a13516f850c981a7fb9425c02c3032705c1b2bef4"
 
-# Experiment configurations (answer = answer.DEFAULTS overrides; rewrite = conversations.DEFAULTS overrides;
-# model = answer model id). Filled in as components land; each one differs from its predecessor in ONE thing.
 Q4B = "mlx-community/Qwen3-4B-Instruct-2507-4bit"
 Q8B = "mlx-community/Qwen3-8B-4bit"
 _P = {"inline_citations": True}
@@ -64,7 +55,6 @@ CONFIGS: dict[str, dict] = {
              "about": "E2f + absence statements become the fixed missing note"},
     "E2fah": {"answer": {**_P2, "min_source_words": 3, "absence_statements": "to_missing", "sufficiency": "hard_sim"},
               "rewrite": {}, "model": Q4B, "about": "E2fa + hard similarity gate (tau 0.55)"},
-    # After the trailing-marker parser fix and the follow-up exemption for hard gates (runs named *_fix):
     "E3c": {"answer": {**_P2, "min_source_words": 3, "absence_statements": "to_missing", "sufficiency": "hard_sim_anchor"},
             "rewrite": {}, "model": Q4B, "about": "E2fa + combined gate (sim < 0.55 AND a question term in no passage)"},
     "E4c": {"answer": {**_P2, "min_source_words": 3, "absence_statements": "to_missing", "sufficiency": "hard_sim_anchor"},
@@ -72,8 +62,6 @@ CONFIGS: dict[str, dict] = {
     "E5": {"answer": {**_P2, "min_source_words": 3, "absence_statements": "to_missing", "sufficiency": "hard_sim_anchor"},
            "rewrite": {"referents": "v2"}, "model": Q8B, "about": "E4c with Qwen3-8B (combined)"},
 }
-# Phase 4D: D0 = the frozen Phase 4C configuration (E4c). Every component is evaluated on top of the two bug fixes
-# (Dfix); D6 combines the components that helped on dev/diagnostic data.
 _E4C = CONFIGS["E4c"]
 _FIX = {**_E4C["answer"], "absence_clause": True, "scoped_follow_up": True}
 CONFIGS.update({
@@ -98,8 +86,6 @@ CONFIGS.update({
             "rewrite": {"referents": "v2", "clarify": True}, "model": Q4B, "about": "D6 + claim verification (drop)"},
 })
 
-# ---------------------------------------------------------------- data
-
 def load(name: str, final: bool = False):
     path, split = SETS[name]
     if not path.is_file():
@@ -109,11 +95,11 @@ def load(name: str, final: bool = False):
     sha = hashlib.sha256(raw).hexdigest()
     if name == "v1dev" and sha != V1_SHA:
         sys.exit("v1 dataset changed: refusing")
-    if name == "v2heldout":            # Phase 4C held-out, now DIAGNOSTIC data (Phase 4D); still integrity-checked
+    if name == "v2heldout":
         seal = json.loads(SEAL.read_text()) if SEAL.exists() else {}
         if not seal.get("approved_by_user") or seal.get("sha256") != sha:
             sys.exit("v2heldout changed since its approval: refusing")
-    if name == "v3heldout":            # Phase 4D held-out: sealed
+    if name == "v3heldout":
         seal = json.loads(SEAL3.read_text()) if SEAL3.exists() else {}
         if not final:
             sys.exit("v3heldout is sealed: pass --final (only after approval)")
@@ -125,18 +111,12 @@ def load(name: str, final: bool = False):
 def turns_of(q):
     return q["turns"] if "turns" in q else [q]
 
-# ---------------------------------------------------------------- configuration
-
 def apply(cfg: dict) -> None:
     answer.DEFAULTS.clear(); answer.DEFAULTS.update({**answer.BASE_DEFAULTS, **cfg.get("answer", {})})
     conversations.DEFAULTS.clear(); conversations.DEFAULTS.update({**conversations.BASE_DEFAULTS, **cfg.get("rewrite", {})})
     config.RAG_LLM = cfg.get("model", config.RAG_LLM)
 
-# ---------------------------------------------------------------- memory monitor
-
 class Monitor:
-    """Samples macOS memory-pressure level (kern.memorystatus_vm_pressure_level: 1 normal, 2 warn, 4 critical)
-    and swap-outs (vm_stat) once a second."""
 
     def __init__(self):
         self.levels, self._stop = [], threading.Event()
@@ -181,9 +161,7 @@ class Monitor:
                 "swapouts_delta": (s1 - self.swapouts0) if None not in (s1, self.swapouts0) else None,
                 "peak_rss_gb": round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1e9, 2)}
 
-# ---------------------------------------------------------------- packs
-
-def build_packs(qs) -> dict:  # Phase 4C/4D packs: frozen retrieval, no passage selection (applied per run)
+def build_packs(qs) -> dict:
     out = {}
     for q in qs:
         if "turns" in q:
@@ -191,8 +169,6 @@ def build_packs(qs) -> dict:  # Phase 4C/4D packs: frozen retrieval, no passage 
         r = rag.retrieve(q["q"], mode="hybrid")
         out[q["id"]] = r
     return out
-
-# ---------------------------------------------------------------- run
 
 def _row(q, t, tid, question, standalone, rewrite, retrieval, out, wall):
     return {"id": tid, "category": q["category"], "expect": t.get("expect", "answer"), "question": question,
@@ -214,7 +190,7 @@ def _row(q, t, tid, question, standalone, rewrite, retrieval, out, wall):
 def run(qs, packs: dict) -> list[dict]:
     from backend import ask
     scratch = Path(tempfile.mkdtemp(prefix="answer-eval-conv-")) / "conversations.db"
-    conversations.db_path = lambda: scratch                      # never the user's conversation history
+    conversations.db_path = lambda: scratch
     rows = []
     for q in qs:
         if "turns" not in q:
@@ -245,8 +221,6 @@ def run(qs, packs: dict) -> list[dict]:
                 prev_cited = row["cited_reels"]
         print(f"{rows[-1]['id']:8} {rows[-1]['status']:22} cited={rows[-1]['cited_reels']} {rows[-1]['wall_s']}s", flush=True)
     return rows
-
-# ---------------------------------------------------------------- automatic metrics (proxies)
 
 def _hit(p, text):
     return any(k in text for k in p.get("kw", []))

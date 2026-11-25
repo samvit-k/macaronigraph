@@ -1,27 +1,8 @@
-"""Read-only production data digest (Phase 4C integrity check). Fails closed: any source that cannot be verified
-makes the digest INCOMPLETE (exit 2), and an incomplete digest is never reported as IDENTICAL.
+"""Read-only, fail-closed integrity digest of SQLite, Chroma and Neo4j.
 
-  .venv/bin/python scripts/data_digest.py --out reports/phase4c/integrity_before.json [--with-verify]
+Usage:
+  .venv/bin/python scripts/data_digest.py --out digest.json [--with-verify]
   .venv/bin/python scripts/data_digest.py --compare A.json B.json
-
-Exit codes: 0 complete (or IDENTICAL) · 1 DIFFERENT · 2 INCOMPLETE (a source or verification failed) · 3 BUSY
-(production ingestion/indexing/heavy work active — nothing is interrupted; retry when idle).
-
-Covers:
-  - pipeline.db canonical tables (reels, attempts), SQLite mode=ro;
-  - Chroma: every table of chroma.sqlite3 (incl. the embeddings_queue vectors, metadata, FTS), mode=ro, AND every
-    file of every HNSW segment directory (data_level0.bin, header.bin, length.bin, link_lists.bin,
-    index_metadata.pickle), hashed byte-for-byte. No Chroma client is created by the digest itself;
-  - Neo4j: counts per label/type, a hash of every node (labels + properties) and every relationship identified by
-    type + both endpoints' canonical ids (Label:key — Reel.reel_id, Passage.chunk_id, Concept.key, Assertion.id) +
-    properties, through a READ-access session. A node without exactly one canonical id, or two nodes with the same
-    id, makes the digest incomplete. Credentials come from backend.config (environment / .env.local), never printed.
-  - Idle check before and after the snapshot (read-only): live spool entries, open capture sessions, and
-    non-blocking probes of the heavy-work and Chroma writer locks (an existing lock file is opened read-only; a
-    missing one is not created).
-  - --with-verify additionally records `indexer verify` and `graph verify` (separate processes; they use the normal
-    clients, so run them with the backend stopped) and re-digests afterwards to prove verification changed nothing.
-Derived state that is meant to change (conversations.db, the graph_extraction cache, logs) is not digested.
 """
 from __future__ import annotations
 
@@ -41,19 +22,14 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from backend import config  # noqa: E402
-from backend.jobs import STALE_SESSION_S  # noqa: E402  (same staleness rule as the backend)
+from backend.jobs import STALE_SESSION_S  # noqa: E402
 
 CANONICAL_TABLES = ("reels", "attempts")
-# Chroma writes one (id, lock_status) row into acquire_write every time a client opens the store (including
-# `indexer verify`). It carries no Reel data; it is still hashed and reported, but excluded from the verdict — and
-# only while its schema is exactly that lock log, so data can never hide there.
 CHROMA_BOOKKEEPING = {"acquire_write": ["id", "lock_status"]}
 NODE_KEYS = {"Reel": "reel_id", "Passage": "chunk_id", "Concept": "key", "Assertion": "id"}
 
 class Incomplete(RuntimeError):
     pass
-
-# ---------------------------------------------------------------- helpers
 
 @contextlib.contextmanager
 def _ro(path: Path):
@@ -80,8 +56,6 @@ def _file_sha(p: Path) -> str:
         for b in iter(lambda: f.read(1 << 20), b""):
             h.update(b)
     return h.hexdigest()
-
-# ---------------------------------------------------------------- sources
 
 def canonical(output_dir: Path) -> dict:
     with _ro(output_dir / "pipeline.db") as con:
@@ -119,7 +93,6 @@ RELS_Q = ("MATCH (a)-[r]->(b) RETURN type(r) AS type, elementId(a) AS a, element
           "properties(r) AS props")
 
 def neo4j_from_rows(nodes: list[dict], rels: list[dict]) -> dict:
-    """Pure function over query rows (testable without a server)."""
     cid_of, seen, node_lines, labels = {}, set(), [], {}
     for n in nodes:
         cid = _canonical_id(n["labels"], n["props"])
@@ -141,7 +114,6 @@ def neo4j_from_rows(nodes: list[dict], rels: list[dict]) -> dict:
             "relationships_sha256": hashlib.sha256("\n".join(sorted(rel_lines)).encode()).hexdigest()}
 
 def neo4j(query=None) -> dict:
-    """query(cypher) → list of dict rows; default: a READ-access session on the configured server."""
     if query is None:
         try:
             from neo4j import READ_ACCESS, GraphDatabase
@@ -159,8 +131,6 @@ def neo4j(query=None) -> dict:
             drv.close()
         return neo4j_from_rows(rows[NODES_Q], rows[RELS_Q])
     return neo4j_from_rows(query(NODES_Q), query(RELS_Q))
-
-# ---------------------------------------------------------------- idle check (read-only)
 
 def _lock_held(path: Path) -> bool:
     if not path.exists():
@@ -198,8 +168,6 @@ def busy(output_dir: Path, now: float | None = None) -> list[str]:
         if _lock_held(p):
             out.append(f"{name} lock is held")
     return out
-
-# ---------------------------------------------------------------- digest / verify / compare
 
 def digest(output_dir: Path | None = None, chroma_dir: Path | None = None, query=None) -> dict:
     output_dir = Path(output_dir or config.OUTPUT_DIR)

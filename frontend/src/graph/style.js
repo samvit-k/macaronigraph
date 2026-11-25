@@ -1,6 +1,4 @@
-// Cytoscape stylesheet (structure adapted from SanD Hacks: small nodes with a hairline ink border, labels to the
-// right, thin straight edges, wide invisible hit-twins for clickable relationships). Cytoscape ignores rgba() alpha,
-// so transparency uses *-opacity properties.
+// Cytoscape stylesheet; Cytoscape ignores rgba() alpha, so transparency uses *-opacity properties.
 import { CONCEPT_TYPES, EDGE_KINDS, REEL } from './vocab.js'
 
 const FONT = '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif'
@@ -17,7 +15,7 @@ export function buildStyle() {
         label: 'data(displayLabel)', 'font-family': FONT, 'font-size': 12.5, 'font-weight': 450, color: '#1c2028',
         'text-valign': 'center', 'text-halign': 'right', 'text-margin-x': 6, 'text-wrap': 'ellipsis',
         'text-max-width': 180, 'min-zoomed-font-size': 8, 'overlay-opacity': 0,
-        'text-opacity': 0, // no labels by default: the number appears only on the hovered or selected node
+        'text-opacity': 0,
         'transition-property': 'opacity, text-opacity, border-width', 'transition-duration': 140,
       },
     },
@@ -28,17 +26,16 @@ export function buildStyle() {
     { selector: 'node.concept.single', style: { 'background-blacken': -0.45, 'font-size': 11, color: '#4a505c', 'border-opacity': 0.25, 'min-zoomed-font-size': 9 } },
     { selector: 'node.concept.bridge', style: { 'font-weight': 550 } },
     { selector: 'node[?expanded]', style: { 'border-width': 1.8, 'border-style': 'double', 'border-opacity': 0.8 } },
-    // hovered, selected, matched and cited nodes always show their label, whatever the zoom
-    // the one visible label (hovered / selected node): readable at any zoom, drawn above neighbouring nodes
+
     { selector: 'node.hover, node:selected', style: { 'min-zoomed-font-size': 0, 'text-opacity': 1, 'z-index': 120,
-      // lfs / lpad are set by GraphCanvas from the zoom, so the label keeps a constant on-screen size
+
       'font-size': 'data(lfs)', 'text-background-padding': 'data(lpad)', 'text-margin-x': 'data(lpad)', 'font-weight': 650,
       color: '#111318', 'text-background-color': '#ffffff', 'text-background-opacity': 0.95,
       'text-background-shape': 'roundrectangle', 'text-border-color': '#d9dbe0', 'text-border-width': 'data(lbw)', 'text-border-opacity': 1 } },
     { selector: 'node.hover', style: { 'border-width': 1.8, 'border-opacity': 1 } },
     { selector: 'node:selected', style: { 'border-width': 2.4, 'border-color': '#111318', 'border-opacity': 1 } },
     { selector: 'node.match', style: { 'font-weight': 700 } },
-    // answer highlight: a warm macaroni halo around cited Reels and the concepts of cited passages
+
     { selector: 'node.cited', style: { 'underlay-color': MACARONI, 'underlay-opacity': 0.45, 'underlay-padding': 6,
       'underlay-shape': 'ellipse', 'border-width': 2, 'border-opacity': 1 } },
 

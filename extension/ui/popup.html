@@ -12,7 +12,6 @@
     <span id="health" class="status" title="Checking Backend…"><i class="dot"></i><span id="healthText">Checking</span></span>
   </header>
 
-  <!-- 1. Library progress -->
   <section class="library enter" style="--order:1" aria-labelledby="libLabel">
     <h2 id="libLabel">Library</h2>
     <div class="split">
@@ -33,7 +32,6 @@
     <p id="libNote" class="note"></p>
   </section>
 
-  <!-- 2a. Idle: batch setup -->
   <section id="idleView" class="batch enter" style="--order:2" aria-labelledby="batchLabel">
     <h2 id="batchLabel">Next Batch</h2>
 
@@ -68,7 +66,6 @@
     <p id="hint" class="hint"><span id="estimate"></span><span id="hintText" title="Open The Popup From The Worker Tab (On The Queue's Site), Press Start, Then Click ▶ On The Page">Then Click ▶ On The Page</span></p>
   </section>
 
-  <!-- 2b. Running -->
   <section id="runView" class="running" hidden aria-live="polite" aria-labelledby="runLabel">
     <h2 id="runLabel"><i class="pulse"></i><span id="runTitle">Running</span></h2>
     <div class="hero">
@@ -80,7 +77,6 @@
     <button id="stop" class="stop" type="button">Stop</button>
   </section>
 
-  <!-- 3. Activity + advanced -->
   <details id="logWrap" class="fold enter" style="--order:3">
     <summary><span>Recent Activity</span><span id="logCount" class="count"></span></summary>
     <ol id="log" class="log"></ol>

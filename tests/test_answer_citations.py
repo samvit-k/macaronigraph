@@ -1,5 +1,4 @@
-"""Phase 4C citation parsing (backend/answer.py, inline_citations): markers inside sentences, per-sentence
-association, malformed/unknown ids, and the unchanged evidence requirements. Scripted model; no real LLM."""
+"""Inline citation parsing: markers inside sentences, per-sentence ownership and malformed ids."""
 import pytest
 
 from backend import answer
@@ -18,7 +17,6 @@ def test_inline_marker_inside_a_sentence_is_a_valid_citation():
     assert "[S1] and" not in out["sentences"][0]["text"] and out["sentences"][0]["text"].endswith("battery life.")
 
 def test_c_prefixed_marker_previously_removed_is_now_parsed():
-    # Phase 4B failure pattern: citations written as text ("c:[S2]") with an empty "c" → every sentence removed.
     out, _ = ask({"s": [sent("The Reel says x86 grew from CISC, c:[S2]")]})
     assert out["status"] == "ok" and out["sentences"][0]["citations"] == ["S2"]
     assert "c:" not in out["sentences"][0]["text"]
@@ -59,12 +57,12 @@ def test_unknown_and_malformed_identifiers_are_rejected_and_reported():
 
 def test_unsupported_sentence_with_an_inline_citation_is_still_only_flagged_not_trusted():
     out, _ = ask({"s": [sent("Quantum annealing outperforms both on cryptography [S1].")]})
-    assert out["sentences"][0]["support"] == "weak"                     # diagnostic flag, as before
+    assert out["sentences"][0]["support"] == "weak"
 
 def test_inline_citations_do_not_bypass_quote_validation():
     out, _ = ask({"s": [sent("The Reel says 'ARM always beats x86 everywhere' [S1].")]})
     assert out["status"] == "insufficient_evidence" and "quote not found" in out["removed"][0]["reason"]
-    out, _ = ask({"s": [sent("The Reel says 'x86 grew from CISC' [S1].")]})          # real quote, wrong source
+    out, _ = ask({"s": [sent("The Reel says 'x86 grew from CISC' [S1].")]})
     assert out["status"] == "insufficient_evidence"
     out, _ = ask({"s": [sent("The Reel says 'x86 grew from CISC' [S2].")]})
     assert out["status"] == "ok"
@@ -82,8 +80,6 @@ def test_abbreviations_and_decimals_do_not_split_a_sentence():
     assert [c for _, c in parts] == [["S1"], ["S2"]] and parts[0][0].startswith("Tools, e.g. Arduino")
 
 def test_a_single_trailing_marker_covers_the_whole_text_as_one_unit():
-    # Dev failure (v1 m04.t2): a multi-sentence quotation followed by one "(S2)" was split and its first sentences
-    # removed. Markers only at the very end behave like the item's "c": one unit, checked as a whole.
     out, _ = ask({"s": [sent("The Reel says ARM grew from RISC. It also says x86 grew from CISC. (S1)", ["S1"])]})
     assert out["status"] == "ok" and len(out["sentences"]) == 1 and not out["removed"]
     assert out["sentences"][0]["citations"] == ["S1"] and "(S1)" not in out["sentences"][0]["text"]
@@ -94,7 +90,6 @@ def test_interior_markers_still_split_and_never_borrow():
     assert any(r["text"] == "Quantum chips beat both." for r in out["removed"])
 
 def test_json_style_quoted_ids_in_a_text_marker_are_parsed():
-    # Dev failure (v2 d14): '<a sentence with c:["S1","S2"] inside its text>' was removed.
     out, _ = ask({"s": [sent('ARM grew from RISC, c:["S1","S2"]')]})
     assert out["status"] == "ok" and out["sentences"][0]["citations"] == ["S1", "S2"]
     assert "c:" not in out["sentences"][0]["text"] and '"' not in out["sentences"][0]["text"]

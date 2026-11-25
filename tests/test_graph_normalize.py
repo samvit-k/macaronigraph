@@ -1,4 +1,4 @@
-"""Concept normalization: genuine synonyms merge; related-but-distinct concepts stay separate."""
+"""Concept normalization: genuine synonyms merge; related but distinct concepts stay separate."""
 import json
 import os
 
@@ -48,13 +48,11 @@ def test_ordinary_plurals_and_synonyms_merge(a, b):
     assert key(a) == key(b), (key(a), key(b))
 
 def test_asr_aliases_only_apply_when_the_model_agrees():
-    assert key("Cloud Code") == "cloud code"                                  # heard, no corroboration
+    assert key("Cloud Code") == "cloud code"
     assert key("Cloud Code", model_canonical="Claude Code") == key("Claude Code")
     assert key("lead code", model_canonical="LeetCode") == key("LeetCode")
     assert key("Anthropik", model_canonical="Anthropic") == key("Anthropic")
     assert key("Anthropik", model_canonical="Anthropik") == "anthropik"
-
-# ---------------------------------------------------------------- acronym definitions
 
 def test_acronym_without_connector_words():
     acr = n.find_acronyms("We use proximal policy optimization (PPO) and model predictive control (MPC).")
@@ -69,18 +67,16 @@ def test_acronym_whose_letters_include_connector_words():
 
 def test_acronym_skipping_connector_words():
     acr = n.find_acronyms("the department of defense (DoD) funds it")
-    assert acr == {"dod": "department of defense"}                            # initials incl. connector
+    assert acr == {"dod": "department of defense"}
     acr = n.find_acronyms("an internet of things (IoT) device")
     assert acr == {"iot": "internet of things"}
     acr = n.find_acronyms("United States of America (USA)")
-    assert acr == {"usa": "United States of America"}                         # connector skipped
+    assert acr == {"usa": "United States of America"}
 
 @pytest.mark.parametrize("text", ["I love pizza (NYC)", "see the docs (README) first", "Python is great (AI)",
                                   "the chief executive officer of the company (CEO)", "something (OK)"])
 def test_unrelated_parentheticals_are_not_acronym_definitions(text):
     assert n.find_acronyms(text) == {}
-
-# ---------------------------------------------------------------- generic filter
 
 @pytest.mark.parametrize("w", ["video", "tips", "the best tools", "people", "free resources", "2026", "x",
                                "the", "all of the things", "this is a whole sentence that is not a concept at all"])
@@ -91,8 +87,6 @@ def test_generic_filler_is_rejected(w):
 def test_real_concepts_are_not_generic(w):
     assert not n.is_generic(w)
 
-# ---------------------------------------------------------------- alias file
-
 def test_alias_file_updates_are_picked_up(tmp_path, monkeypatch):
     p = tmp_path / "aliases.json"
     p.write_text(json.dumps({"concepts": {"Foo Bar": {"type": "tool", "aliases": ["FB"]}}}))
@@ -101,7 +95,7 @@ def test_alias_file_updates_are_picked_up(tmp_path, monkeypatch):
     assert key("FB") == "foo bar" and key("Fizz") == "fizz"
     p.write_text(json.dumps({"concepts": {"Foo Bar": {"type": "tool", "aliases": ["FB"]},
                                           "Fizz Buzz": {"type": "tool", "aliases": ["Fizz"]}}}))
-    os.utime(p, ns=(p.stat().st_atime_ns, p.stat().st_mtime_ns + 1_000_000))   # ensure a new mtime
+    os.utime(p, ns=(p.stat().st_atime_ns, p.stat().st_mtime_ns + 1_000_000))
     assert key("Fizz") == "fizz buzz" and n.version() != v1
 
 def test_real_alias_file_is_consistent():

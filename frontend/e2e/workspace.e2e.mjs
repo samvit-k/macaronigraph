@@ -1,9 +1,4 @@
-// Real-browser end-to-end check of the MacaroniGraph workspace and welcome page against a running backend with
-// processed Reels. Data-agnostic: topics are chosen from whatever graph the backend serves (the most-mentioned concepts
-// whose name occurs literally in a Reel), so the test contains no information about anyone's saved Reels. Drives the locally installed Google Chrome through playwright-core (no browser download;
-// a throwaway profile, so the user's Chrome profile and extensions are untouched). Read-only for Reel data; the
-// conversations it creates are deleted at the end.
-//
+// Real-browser checks of the workspace and welcome page against a running backend (installed Chrome, throwaway profile).
 // Usage: node e2e/workspace.e2e.mjs [baseUrl=http://127.0.0.1:8765] [outDir=../reports/phase5/screens] [--offline]
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -12,10 +7,9 @@ import { chromium } from 'playwright-core'
 const BASE = process.argv[2] && !process.argv[2].startsWith('--') ? process.argv[2] : 'http://127.0.0.1:8765'
 const OUT = resolve(process.argv[3] && !process.argv[3].startsWith('--') ? process.argv[3] : '../reports/phase5/screens')
 const OFFLINE = process.argv.includes('--offline')
-// Offline mode cannot read the graph, so its question topic comes from the environment (any word your Reels use).
+
 const OFFLINE_TOPIC = process.env.E2E_TOPIC ?? 'Python'
 
-/** Two frequently mentioned concepts whose names appear literally in a Reel's text (good listing/search terms). */
 async function pickTopics() {
   const o = await (await fetch(`${BASE}/api/graph/overview`)).json()
   const out = []
@@ -71,13 +65,13 @@ const page = await context.newPage()
 const consoleErrors = []
 page.on('console', (m) => {
   if (m.type() !== 'error') return
-  // offline mode: the browser logs the graph endpoint's expected 503 as a resource error; that is the tested behaviour
+
   if (OFFLINE && /status of 503/.test(m.text())) return
   consoleErrors.push(m.text())
 })
 page.on('response', async (r) => {
   if (r.url().endsWith('/api/ask') && r.request().method() === 'POST') {
-    try { const j = await r.json(); if (j?.conversation_id) created.add(j.conversation_id) } catch { /* ignore */ }
+    try { const j = await r.json(); if (j?.conversation_id) created.add(j.conversation_id) } catch {  }
   }
 })
 
@@ -112,7 +106,6 @@ try {
     const [A, B] = await pickTopics()
     console.log(`topics: ${A}, ${B}`)
 
-    // search → focus a concept
     await page.getByLabel('Search concepts and Reels').fill(A.toLowerCase())
     await page.getByRole('option').first().waitFor()
     await shot(page, '02-search')
@@ -124,7 +117,6 @@ try {
     await page.waitForTimeout(600)
     await shot(page, '03-concept-inspector')
 
-    // inspect a Reel from the concept, then expand it
     await page.locator('.inspector .reel-ev .link-btn').first().click()
     await page.locator('.inspector .insp-kicker', { hasText: 'Reel' }).waitFor()
     const before = await nodeCount(page)
@@ -138,7 +130,6 @@ try {
     await page.waitForTimeout(300)
     check('collapse removes them again', (await nodeCount(page)) <= before + 1, `${await nodeCount(page)} nodes`)
 
-    // click a mention edge → mention view (never presented as a relationship)
     const mentionOk = await page.evaluate(() => {
       const e = window.__mgCy.edges('.mention').filter((x) => x.style('display') !== 'none')[0]
       if (!e) return false
@@ -150,7 +141,6 @@ try {
       check('mention edge → evidence, labelled "not a relationship"', /not a relationship/i.test(await page.locator('.inspector').innerText()))
     } else check('mention edge → evidence', false, 'no mention edge')
 
-    // assertion edge
     const hasAssertion = await page.evaluate(() => {
       const e = window.__mgCy.edges('.assertion-hit')[0]
       if (!e) return false
@@ -164,7 +154,6 @@ try {
       await shot(page, '05-assertion')
     }
 
-    // filters
     await page.getByRole('button', { name: /^Filter/ }).click()
     await page.getByRole('dialog', { name: 'Graph filters' }).getByLabel('Mention').uncheck()
     const hiddenMentions = await page.evaluate(() => window.__mgCy.edges('.mention').every((e) => e.style('display') === 'none'))
@@ -174,12 +163,10 @@ try {
     await page.mouse.click(10, 300)
     check('reset filters restores mentions', await page.evaluate(() => window.__mgCy.edges('.mention').some((e) => e.style('display') !== 'none')))
 
-    // legend collapse
     await page.locator('.legend .tg').click()
     check('legend collapses to a pill', await page.locator('.legend-pill').isVisible())
     await page.locator('.legend-pill').click()
 
-    // chat: deterministic listing + citation
     const l = await ask(page, `Which Reels mention ${A}?`)
     check('listing answered by exact search', /Exact search · no model/i.test(await l.innerText()))
     await l.locator('.cite-chip').first().click()
@@ -187,7 +174,6 @@ try {
     check('citation → original excerpt with evidence type', await page.locator('.inspector .excerpt .ev-type').first().isVisible())
     await shot(page, '07-listing-citation')
 
-    // generated answer + graph highlight
     const g = await ask(page, `What do my Reels say about ${A}?`)
     check('generated answer labelled as model output', /Generated answer · local model/i.test(await g.innerText()))
     await g.getByRole('button', { name: 'Show in graph' }).click()
@@ -196,7 +182,6 @@ try {
     check('answer highlights cited Reels/concepts in the graph', cited > 0, `${cited} highlighted`)
     await shot(page, '08-answer-highlight')
 
-    // follow-up + clarification
     await page.getByRole('button', { name: 'New' }).click()
     await ask(page, `What do my Reels say about ${A} and ${B}?`)
     const c = await ask(page, 'Is it free?')
@@ -207,7 +192,6 @@ try {
     await shot(page, '09-clarification')
     await page.getByLabel('Ask your saved Reels').fill('')
 
-    // history
     await page.getByRole('button', { name: 'History' }).click()
     const rows = await page.locator('.history-row').count()
     check('conversation history lists conversations', rows >= 2, `${rows} conversations`)
@@ -238,11 +222,9 @@ try {
     await page.locator('[data-testid="exchange"]').first().waitFor()
     check('reopening a conversation restores its turns', (await page.locator('[data-testid="exchange"]').count()) >= 1)
 
-    // insufficient evidence
     const u = await ask(page, 'Who won the 2026 Super Bowl?')
     check('insufficient evidence shown as its own state', /Not Enough Evidence/.test(await u.innerText()))
 
-    // responsive
     for (const [w, h] of [[1100, 820], [800, 900]]) {
       await page.setViewportSize({ width: w, height: h })
       await page.waitForTimeout(500)
@@ -252,7 +234,6 @@ try {
     }
     await page.setViewportSize({ width: 1440, height: 900 })
 
-    // welcome page
     await page.goto(`${BASE}/welcome`, { waitUntil: 'networkidle' })
     check('welcome headline', /A knowledge graph of your saved Reels/.test(await page.locator('h1').innerText()))
     check('welcome footer is only the copyright', (await page.locator('footer').innerText()).trim() === '© 2026 Samvit Kundapur')
@@ -272,7 +253,7 @@ try {
   await shot(page, 'failure').catch(() => {})
 } finally {
   for (const id of [...created].filter((c) => !preexisting.has(c))) {
-    try { await fetch(`${BASE}/api/conversations/${id}`, { method: 'DELETE' }) } catch { /* ignore */ }
+    try { await fetch(`${BASE}/api/conversations/${id}`, { method: 'DELETE' }) } catch {  }
   }
   await browser.close()
   writeFileSync(resolve(OUT, OFFLINE ? 'e2e-offline.json' : 'e2e.json'), JSON.stringify({ base: BASE, results, deleted_conversations: [...created] }, null, 1))

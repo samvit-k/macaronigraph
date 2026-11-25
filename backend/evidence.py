@@ -1,16 +1,4 @@
-"""Phase 4D passage selection WITHIN Reels already in the context pack (no new Reels, no re-embedding, no change to
-Reel-level retrieval). Diagnosis (reports/phase4c/REPORT.md §3): in 8 of 24 held-out failures the right Reel was
-retrieved but not the passage that holds the answer ("Round 2 …", "the runtime starts the kernel").
-
-For the top Reels of the pack, every other passage of that Reel in the ACTIVE collection (content hash equal to the
-index state's) is scored against the question:
-  lexical   rare question words / numbers / adjacent word pairs found in the passage, weighted by how few of the
-            Reel's passages contain them (a word in every passage of the Reel says nothing);
-  semantic  cosine between the question and the passage, from the embeddings already stored in Chroma.
-A passage is added only if it passes BOTH a lexical minimum and a semantic floor relative to the pack, at most
-`per_reel` per Reel and `max_add` in total, within a character budget, and not a near-duplicate of a pack passage.
-Added passages are appended after the existing sources (S{n+1}…) with channel "same_reel_passage".
-"""
+"""Passage selection: adds answer-bearing passages from Reels already in the context pack (no new Reels)."""
 from __future__ import annotations
 
 import math
@@ -57,8 +45,6 @@ def _cos(q, v) -> float:
     return float(np.dot(q, v) / ((np.linalg.norm(q) * np.linalg.norm(v)) or 1.0))
 
 def select(question: str, retrieval: dict, options: dict | None = None) -> dict:
-    """→ the retrieval dict with answer-bearing passages of already-retrieved Reels appended (in place), and
-    retrieval["passage_select"] = what was added and why. Never removes or reorders existing sources."""
     p = {**DEFAULTS, **(options or {})}
     sources = retrieval.get("sources") or []
     info = {"params": p, "added": [], "considered": 0}

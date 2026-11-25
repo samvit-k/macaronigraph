@@ -1,6 +1,4 @@
-// Top-bar search (⌘K), adapted from SanD Hacks. Typing dims non-matching nodes already on the canvas; the dropdown
-// searches the WHOLE graph on the server (concepts by name/alias, Reels by creator/caption), so concepts that are not
-// loaded yet can still be found — picking one loads its neighbourhood and focuses it.
+// Top-bar search (⌘K): dims non-matching loaded nodes and searches the whole graph on the server.
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../api/client.js'
 import { conceptType, REEL } from '../graph/vocab.js'

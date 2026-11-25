@@ -1,5 +1,4 @@
-"""The test-session production guard (conftest.py): tests can never reach the real output directory (SQLite
-pipeline.db, Chroma), nor the production Neo4j — even if a test forgets isolated_output or restores patches."""
+"""The test-session production guard: tests can never reach the real database, Chroma or Neo4j."""
 import sqlite3
 
 import chromadb
@@ -15,8 +14,6 @@ def test_defaults_point_at_the_session_directory_not_production():
         assert SESSION_DIR in p.parents and not _under_production(p), p
 
 def test_restoring_patches_returns_to_the_session_directory(tmp_path):
-    """What leaked before: a restored monkeypatch put OUTPUT_DIR back to the real output/. Now the restored
-    value is the session directory."""
     before = config.OUTPUT_DIR
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(config, "OUTPUT_DIR", tmp_path / "out")
@@ -50,7 +47,6 @@ def test_neo4j_production_uri_and_password_are_refused():
             Neo4jStore(uri="bolt://127.0.0.1:9", password=PRODUCTION_NEO4J["password"]).ping()
 
 def _snapshot(d):
-    """(relative path, size, mtime_ns) of every file — via stat only, no file is opened."""
     return sorted((str(p.relative_to(d)), p.stat().st_size, p.stat().st_mtime_ns) for p in d.rglob("*") if p.is_file())
 
 def test_temporary_chroma_client_works(isolated_output, monkeypatch):
@@ -61,7 +57,7 @@ def test_temporary_chroma_client_works(isolated_output, monkeypatch):
     assert col.get(ids=["a"])["documents"] == ["probe"]
     assert list(indexer._clients) == [str(config.chroma_dir())]
     assert isolated_output in config.chroma_dir().parents
-    assert (config.chroma_dir() / "chroma.sqlite3").exists()                       # really written, in tmp
+    assert (config.chroma_dir() / "chroma.sqlite3").exists()
 
 def test_production_chroma_client_is_blocked_before_any_file_is_touched(monkeypatch):
     prod = ROOT / "output" / "chroma"
@@ -71,9 +67,9 @@ def test_production_chroma_client_is_blocked_before_any_file_is_touched(monkeypa
         "the real Chroma client was constructed for a production path"))
     with pytest.raises(ProductionAccess):
         chromadb.PersistentClient(path=str(prod))
-    monkeypatch.setattr(config, "OUTPUT_DIR", ROOT / "output")                     # via the application path too
+    monkeypatch.setattr(config, "OUTPUT_DIR", ROOT / "output")
     monkeypatch.setattr(indexer, "_clients", {})
     with pytest.raises(ProductionAccess):
         indexer.client()
     assert calls == [] and indexer._clients == {}
-    assert (_snapshot(prod) if prod.exists() else None) == before                  # nothing created or modified
+    assert (_snapshot(prod) if prod.exists() else None) == before

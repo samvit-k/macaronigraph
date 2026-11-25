@@ -1,20 +1,6 @@
-"""Phase 3 retrieval evaluation: compare embedding models on hand-written queries over the real canonical
-records. Read-only: it reads SQLite and embeds into a throw-away in-memory matrix per model (the production
-Chroma index is not touched, and no Reels are processed). Ranking matches the API: cosine similarity,
-fragment down-weighting, grouped by Reel (best chunk score).
+"""Semantic-search evaluation: compare embedding models on a private query set.
 
-Metrics:
-  Reel level (all scored queries)
-    Hit@1 / Hit@5   at least one relevant Reel ranked 1st / in the top 5
-    MRR             reciprocal rank of the first relevant Reel
-  OCR passage level (ocr_only queries)
-    OCR Hit@1/@5    individual OCR-derived chunks ranked on their own (not grouped by Reel; captions and
-                    transcripts excluded); a hit is a chunk of a relevant Reel whose text contains every
-                    `ocr_terms` entry (case-insensitive). Finding the Reel via speech or caption never counts.
-Validation: relevant Reel IDs are checked against the corpus (missing IDs reported; queries with none
-available excluded); ocr_only queries without non-empty `ocr_terms` are excluded.
-
-  .venv/bin/python scripts/search_eval.py [model ...]     (default: Qwen3-Embedding-0.6B vs bge-base-en-v1.5)
+Usage: .venv/bin/python scripts/search_eval.py [model ...]
 """
 from __future__ import annotations
 
@@ -43,7 +29,6 @@ def _valid_terms(terms) -> bool:
     return isinstance(terms, list) and bool(terms) and all(isinstance(t, str) and t.strip() for t in terms)
 
 def validate(queries: list[dict], reels: set[str]) -> tuple[list[dict], list[dict], list[str]]:
-    """→ (scored queries with `relevant` narrowed to available Reels, excluded queries + reason, warnings)"""
     scored, excluded, warnings = [], [], []
     for q in queries:
         missing = [r for r in q["relevant"] if r not in reels]
@@ -71,7 +56,6 @@ def rank_reels(sims, chunks) -> list[tuple[str, float, dict]]:
     return sorted(((r, s, c) for r, (s, c) in best.items()), key=lambda x: -x[1])
 
 def rank_ocr_passages(sims, chunks) -> list[tuple[float, dict]]:
-    """Every OCR-derived chunk on its own, best first."""
     return sorted(((_weighted(s, c), c) for c, s in zip(chunks, sims) if c["metadata"]["content_type"] in OCR_TYPES),
                   key=lambda x: -x[0])
 
@@ -79,7 +63,6 @@ def contains_terms(text: str, terms: list[str]) -> bool:
     return _valid_terms(terms) and all(t.lower() in text.lower() for t in terms)
 
 def ocr_passage_rank(ranked_passages, relevant: list[str], terms: list[str]) -> tuple[int | None, dict | None]:
-    """1-based rank of the first OCR passage that belongs to a relevant Reel and contains all terms."""
     for i, (_, c) in enumerate(ranked_passages):
         if c["metadata"]["reel_id"] in relevant and contains_terms(c["text"], terms):
             return i + 1, c
@@ -96,7 +79,7 @@ def metrics(ranks: list[int | None]) -> dict:
 def evaluate(model: str, chunks: list[dict], queries: list[dict]) -> dict:
     emb = embedder.Embedder(embedder.current_spec(model))
     t0 = time.time()
-    emb.dim                                                     # load the model
+    emb.dim
     load_s = time.time() - t0
     t0 = time.time()
     vecs = emb.encode_docs([chunking.embed_text(c) for c in chunks])

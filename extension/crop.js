@@ -1,6 +1,4 @@
-// Pure geometry: map the video's CSS rect (tab viewport coords) to pixels in the captured frame.
-// Tab capture scales the viewport into the stream frame preserving aspect ratio; if the stream's
-// aspect differs (constraints), the content is letterboxed and centered. Uses the actual frame size.
+// Map the video's CSS rect to pixels in the captured frame (letterboxed when the aspect ratios differ).
 function cropPx(frameW, frameH, viewport, rect) {
   const s = Math.min(frameW / viewport.w, frameH / viewport.h);
   const ox = (frameW - viewport.w * s) / 2;

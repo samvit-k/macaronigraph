@@ -1,4 +1,4 @@
-"""The frozen Phase 4C answer configuration (fixtures/rag_answer_config.json) is what the code uses by default."""
+"""The frozen answer configuration (fixtures/rag_answer_config.json) is what the code uses by default."""
 import json
 
 from backend import answer, config, conversations

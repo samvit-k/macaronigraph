@@ -1,19 +1,6 @@
-"""Offline OCR comparison (v1 band-merge vs v2 speech-aligned) on opt-in evaluation frames.
+"""Offline OCR comparison (v1 band merge vs v2 speech-aligned) on opt-in evaluation frames.
 
-Usage: .venv/bin/python scripts/ocr_eval.py [--show N] [--side-by-side REEL_ID]
-Reads output/eval_frames/<reel>/<session>/ (see backend/evalframes.py). Tesseract runs once per Reel;
-v1 and v2 are built from the same raw segments, so differences come only from merging/labelling.
-
-These are PROXY metrics: real Reels have no ground truth. Ground-truth accuracy (WER, card recall) is
-measured only on the generated test media (scripts/validate.py).
-
-  segments     output segments (fewer = less fragmentation, if retention holds)
-  readable     share of alphabetic tokens (≥3 letters) found in the system word list or the transcript
-  garbled      share of multi-word segments whose readable share < 50 %
-  retention    share of *informative* raw OCR tokens present in the output (see informative_tokens)
-  screen-only  retention restricted to informative tokens never spoken (independent on-screen info)
-  duplicate    share of segments whose normalized text repeats another segment's
-Exit codes: 0 all selected Reels evaluated · 1 nothing evaluated · 2 incomplete (some Reels missing).
+Usage: .venv/bin/python scripts/ocr_eval.py [--show N] [--side-by-side REEL_ID] [--fragments]
 """
 from __future__ import annotations
 
@@ -29,7 +16,6 @@ from backend.transcribe import norm  # noqa: E402
 WORDLIST = Path("/usr/share/dict/words")
 
 def load_dict(path: Path = WORDLIST) -> set[str] | None:
-    """System word list, or None if unavailable (readability is then reported as n/a)."""
     try:
         return {w.strip().lower() for w in path.read_text(encoding="utf-8", errors="ignore").splitlines() if w.strip()}
     except OSError:
@@ -39,9 +25,6 @@ def tokens(text: str) -> list[str]:
     return norm(text).split()
 
 def informative_tokens(raw_segments: list[dict], words: set[str] | None, spoken: set[str]) -> set[str]:
-    """Normalized tokens from raw OCR that plausibly carry information — not just dictionary words:
-    numbers / alphanumerics (x86, 4, 13), ALL-CAPS acronyms (AI, RAG, WSL), dictionary or spoken words,
-    and any ≥3-char term seen in ≥2 raw segments (recurring names like 'Vultr', 'Hacklytics')."""
     seen = Counter(t for s in raw_segments for t in set(tokens(s["text"])))
     out: set[str] = set()
     for s in raw_segments:
@@ -80,7 +63,6 @@ def metrics(segs: list[dict], informative: set[str], words: set[str] | None, spo
     }
 
 def _context(reel_id: str) -> str:
-    """Caption + hashtags from the source export (protected tokens for fragment labelling)."""
     try:
         from backend import config, metadata
 
@@ -113,7 +95,6 @@ def evaluate_reel(frames, meta, words, reel_id=""):
             "frag": fragment_stats(r2["segments"], info)}
 
 def evaluate(selection: list[str], loader=evalframes.load, words: set[str] | None = None):
-    """→ (results by reel, missing reel ids)."""
     results, missing = {}, []
     for rid in selection:
         try:

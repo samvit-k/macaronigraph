@@ -1,6 +1,4 @@
-/* MacaroniGraph welcome page. Hero composition inspired by the BioOKF landing page (centred headline with one
-   coloured phrase, faint dot grid fading out, one blurred glow, primary + ghost buttons); colours, type scale and
-   copy are MacaroniGraph's own (tokens.css). */
+/* Welcome page. */
 *, *::before, *::after { box-sizing: border-box; }
 html, body, #root { min-height: 100%; }
 body { margin: 0; font-family: var(--sans); color: var(--text); background: var(--bg); -webkit-font-smoothing: antialiased; }

@@ -1,14 +1,4 @@
-"""SQLite job tracking: resumable, idempotent ingestion with retries, one canonical record per Reel,
-and the full attempt history. SQLite (output/pipeline.db) is the source of truth; the JSONL files are exports.
-
-Reel states
-  pending          never attempted (or released without a counted attempt)
-  in_progress      leased by a capture session
-  needs_retry      a counted attempt failed in a retryable way
-  done             canonical record is ok / ok_no_speech / an acceptable partial
-  exhausted        MAX_ATTEMPTS used; canonical = best attempt so far
-  failed_permanent content confirmed unavailable (PERMANENT_CONFIRM attempts)
-  skipped          not a Reel (e.g. /p/ image posts)
+"""SQLite job tracking: resumable, idempotent ingestion with retries and one canonical record per Reel.
 
 CLI:  python -m backend.jobs status | requeue <reel_id>... | export | migrate [phase1.jsonl]
 """
@@ -25,14 +15,14 @@ from pathlib import Path
 
 from . import config, db
 
-MAX_ATTEMPTS = 3          # counted attempts before a Reel is `exhausted`
-PERMANENT_CONFIRM = 2     # "page not available" must repeat before `failed_permanent`
-STALE_SESSION_S = 600     # unfinished session with no heartbeat/upload for this long → dead; leases released
-EXPORT_EVERY_N = 10       # canonical JSONL refresh cadence (also on session finish and on demand)
+MAX_ATTEMPTS = 3
+PERMANENT_CONFIRM = 2
+STALE_SESSION_S = 600
+EXPORT_EVERY_N = 10
 EXPORT_EVERY_S = 60
 RANK = {"ok": 4, "ok_no_speech": 3, "partial": 2, "failed": 1}
-ACCEPTABLE_PARTIAL = ("truncated_at_capture_limit", "metadata_not_found")  # retrying cannot improve these
-FREE_RETRY_PLAYBACK = {"auth_required", "aborted", "capture_lost"}       # not the Reel's fault: no attempt counted
+ACCEPTABLE_PARTIAL = ("truncated_at_capture_limit", "metadata_not_found")
+FREE_RETRY_PLAYBACK = {"auth_required", "aborted", "capture_lost"}
 
 _lock = threading.RLock()
 _export_state = {"pending": 0, "last": 0.0}
@@ -53,12 +43,9 @@ CREATE INDEX IF NOT EXISTS attempts_reel ON attempts(reel_id);
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
 """
 
-# Characters that some readers (e.g. Python's str.splitlines, JavaScript) treat as line breaks. In
-# serialized JSON they can only occur inside strings, where a \\uXXXX escape is equivalent and valid.
 _LINE_BREAKERS = {"\x85": "\\u0085", "\u2028": "\\u2028", "\u2029": "\\u2029"}
 
 def jsonl_line(obj) -> str:
-    """One JSONL line: UTF-8 kept readable, but no character any common reader splits lines on."""
     s = json.dumps(obj, ensure_ascii=False)
     for raw, esc in _LINE_BREAKERS.items():
         s = s.replace(raw, esc)
@@ -75,7 +62,6 @@ def attempts_jsonl() -> Path:
     return config.OUTPUT_DIR / "attempts.jsonl"
 
 def _migrate(con) -> None:
-    """Additive column migrations for databases created by earlier versions."""
     if "prior_state" not in {r[1] for r in con.execute("PRAGMA table_info(reels)")}:
         con.execute("ALTER TABLE reels ADD COLUMN prior_state TEXT")
     if "capture_finished_at" not in {r[1] for r in con.execute("PRAGMA table_info(sessions)")}:
@@ -97,10 +83,7 @@ def set_meta(key: str, value: str) -> None:
         con.execute("INSERT INTO meta(key, value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                     (key, value))
 
-# ---------------------------------------------------------------- import & sessions
-
 def import_posts(source: str, posts: list[dict]) -> int:
-    """Upsert Reels from the parsed export. Idempotent: existing job state is never reset. → rows added"""
     with tx() as con:
         before = con.execute("SELECT COUNT(*) FROM reels").fetchone()[0]
         con.executemany(
@@ -113,8 +96,6 @@ def import_posts(source: str, posts: list[dict]) -> int:
         return con.execute("SELECT COUNT(*) FROM reels").fetchone()[0] - before
 
 def _release(con, where: str, args: tuple) -> int:
-    """Return unreported leased Reels to the state they had before the lease (a `done` Reel leased by a
-    reprocess/eval session stays `done`); fall back to pending/needs_retry for legacy rows."""
     return con.execute(
         f"""UPDATE reels SET state = COALESCE(prior_state,
                                      CASE WHEN attempts > 0 THEN 'needs_retry' ELSE 'pending' END),
@@ -123,8 +104,7 @@ def _release(con, where: str, args: tuple) -> int:
         (db.utc_now(), *args)).rowcount
 
 def reclaim_stale(con, now: float | None = None) -> int:
-    """Release leases of finished sessions and of sessions with no heartbeat/upload for STALE_SESSION_S.
-    A session whose capture finished but whose jobs are still queued is draining, not dead: never abandoned."""
+    """A finished session whose uploads are still queued is draining, not dead, and is never abandoned."""
     now = now or time.time()
     con.execute("""UPDATE sessions SET finished_at = ?, end_reason = 'abandoned (no heartbeat)'
                    WHERE finished_at IS NULL AND capture_finished_at IS NULL AND last_seen < ?""",
@@ -134,9 +114,6 @@ def reclaim_stale(con, now: float | None = None) -> int:
 
 def create_session(session_id: str, source: str, limit: int, offset: int = 0, mode: str = "pending",
                    now: float | None = None, reel_ids: list[str] | None = None) -> list[dict]:
-    """Pick the next Reels to process and lease them to this session.
-    mode=pending: pending + needs_retry (+ work released from interrupted sessions).
-    mode=all: every non-skipped Reel (reprocess).  mode=eval: exactly `reel_ids` (any finished state)."""
     states = ("pending", "needs_retry") if mode == "pending" else \
              ("pending", "needs_retry", "done", "exhausted", "failed_permanent")
     now = now or time.time()
@@ -158,14 +135,11 @@ def create_session(session_id: str, source: str, limit: int, offset: int = 0, mo
     return items
 
 def heartbeat(session_id: str, now: float | None = None) -> bool:
-    """Keep an active session's leases alive (the extension calls this every 30 s while running)."""
     with tx() as con:
         return con.execute("UPDATE sessions SET last_seen = ? WHERE session_id = ? AND finished_at IS NULL",
-                           (now or time.time(), session_id)).rowcount == 1  # also while draining
+                           (now or time.time(), session_id)).rowcount == 1
 
 def finish_session(session_id: str, reason: str = "finished") -> int:
-    """The extension finished capturing. Reels it leased but never uploaded go back to the queue; the
-    session is *finalized* (finished_at) only once none of its uploads are still queued. → leases released"""
     with tx() as con:
         con.execute("UPDATE sessions SET capture_finished_at = COALESCE(capture_finished_at, ?), "
                     "end_reason = COALESCE(end_reason, ?) WHERE session_id = ?", (time.time(), reason, session_id))
@@ -191,9 +165,7 @@ def session_progress(session_id: str) -> dict:
             "end_reason": s["end_reason"] if s else None}
 
 def mark_queued(reel_id: str, session_id: str) -> dict | None:
-    """An upload for this Reel is (about to be) in the spool. Called BEFORE the job is published, so the
-    worker can never record the attempt first and then have this overwrite the final state.
-    → snapshot of the previous (state, lease_session, prior_state) for revert_queued()."""
+    """Called before the job is published, so the worker can never record the attempt first and have this overwrite it."""
     with tx() as con:
         row = con.execute("SELECT state, lease_session, prior_state FROM reels WHERE reel_id=?", (reel_id,)).fetchone()
         con.execute("UPDATE reels SET prior_state = CASE WHEN state IN ('in_progress','queued') THEN prior_state "
@@ -202,7 +174,6 @@ def mark_queued(reel_id: str, session_id: str) -> dict | None:
     return dict(row) if row else None
 
 def revert_queued(reel_id: str, snapshot: dict | None) -> None:
-    """Undo mark_queued() exactly (e.g. the spool write failed): the session keeps its lease."""
     if snapshot is None:
         return
     with tx() as con:
@@ -211,7 +182,6 @@ def revert_queued(reel_id: str, snapshot: dict | None) -> None:
                     (snapshot["state"], snapshot["lease_session"], snapshot["prior_state"], db.utc_now(), reel_id))
 
 def restore_orphan_queued(keep: list[str]) -> int:
-    """`queued` Reels with no spooled job (crash between mark and publish) → their prior state."""
     with tx() as con:
         ph = ",".join("?" * len(keep))
         return con.execute(
@@ -221,10 +191,7 @@ def restore_orphan_queued(keep: list[str]) -> int:
                 WHERE state = 'queued' {f'AND reel_id NOT IN ({ph})' if keep else ''}""",
             (db.utc_now(), *keep)).rowcount
 
-# ---------------------------------------------------------------- attempts
-
 def classify(record: dict) -> str:
-    """→ done | retry | retry_free | permanent"""
     status, errors = record["status"], record.get("errors", [])
     if status in ("ok", "ok_no_speech"):
         return "done"
@@ -250,8 +217,6 @@ def existing_attempt(session_id: str | None, reel_id: str | None) -> dict | None
     return dict(row) if row else None
 
 def record_attempt(record: dict, export: bool = True) -> dict:
-    """Store an attempt, advance the Reel's state, recompute its canonical record. Idempotent per
-    (session_id, reel_id): a repeated upload returns the stored outcome without changing anything."""
     rid = record["reel_id"]
     sid = record.get("session_id") or f"nosession-{record.get('processed_at')}"
     outcome = classify(record)
@@ -260,8 +225,7 @@ def record_attempt(record: dict, export: bool = True) -> dict:
         dup = con.execute("SELECT attempt_id, outcome FROM attempts WHERE session_id=? AND reel_id=?",
                           (sid, rid)).fetchone()
         if dup:
-            # Already persisted (e.g. crash after commit, then the job was re-run): change nothing, except
-            # undo a stale `queued` mark for this same session so the Reel is not stranded.
+            # Already persisted (crash after commit, then re-run): change nothing.
             con.execute("""UPDATE reels SET state = COALESCE(prior_state, state), prior_state = NULL,
                              lease_session = NULL, updated_at = ?
                            WHERE reel_id = ? AND state = 'queued' AND lease_session = ?""", (db.utc_now(), rid, sid))
@@ -276,7 +240,7 @@ def record_attempt(record: dict, export: bool = True) -> dict:
             (rid, sid, record["processed_at"], record["status"], json.dumps(record["errors"]), int(counted), outcome,
              json.dumps(record, ensure_ascii=False))).lastrowid
         reel = con.execute("SELECT * FROM reels WHERE reel_id=?", (rid,)).fetchone()
-        if reel is None:  # not in the job table (e.g. metadata missing): track it anyway
+        if reel is None:
             con.execute("INSERT INTO reels(reel_id, source, source_url, state, updated_at) VALUES(?,?,?,?,?)",
                         (rid, sid.split("-")[0], record.get("source_url"), "pending", db.utc_now()))
             reel = con.execute("SELECT * FROM reels WHERE reel_id=?", (rid,)).fetchone()
@@ -298,7 +262,7 @@ def record_attempt(record: dict, export: bool = True) -> dict:
                        prior_state=NULL, canonical_attempt_id=?, updated_at=? WHERE reel_id=?""",
                     (state, attempts, record["status"], "; ".join(record["errors"])[:500] or None,
                      canonical, db.utc_now(), rid))
-        _maybe_finalize(con, sid)  # last queued upload of a capture-finished session → session finalized
+        _maybe_finalize(con, sid)
     _append_history(record, attempt_id, outcome)
     if export:
         maybe_export()
@@ -315,7 +279,7 @@ def _has_done(con, rid: str, exclude_id: int) -> bool:
 def _pick_canonical(con, rid: str) -> int | None:
     best, best_key = None, None
     for row in con.execute("SELECT attempt_id, record FROM attempts WHERE reel_id=? ORDER BY attempt_id", (rid,)):
-        key = (*_score(json.loads(row["record"])), row["attempt_id"])  # ties → newest
+        key = (*_score(json.loads(row["record"])), row["attempt_id"])
         if best_key is None or key > best_key:
             best, best_key = row["attempt_id"], key
     return best
@@ -324,10 +288,7 @@ def _append_history(record: dict, attempt_id: int, outcome: str) -> None:
     with _lock, open(attempts_jsonl(), "a", encoding="utf-8") as f:
         f.write(jsonl_line({**record, "attempt_id": attempt_id, "outcome": outcome}) + "\n")
 
-# ---------------------------------------------------------------- export & status
-
 def maybe_export(force: bool = False) -> bool:
-    """Debounced canonical export: every EXPORT_EVERY_N attempts or EXPORT_EVERY_S seconds."""
     with _lock:
         _export_state["pending"] += 1
         due = force or _export_state["pending"] >= EXPORT_EVERY_N or \
@@ -337,8 +298,7 @@ def maybe_export(force: bool = False) -> bool:
     return due
 
 def export_canonical() -> int:
-    """Atomically rewrite enriched_reels.jsonl with exactly one canonical record per attempted Reel.
-    Streams row by row (memory stays flat); tmp file + fsync + rename, so readers never see a partial file."""
+    """Atomic rewrite (temporary file, fsync, rename): readers never see a partial file."""
     with _lock, connect() as con:
         tmp = config.OUTPUT_JSONL.with_suffix(".jsonl.tmp")
         n = 0
@@ -381,23 +341,11 @@ def requeue(reel_ids: list[str], reset_attempts: bool = True) -> int:
                                f"{', attempts=0' if reset_attempts else ''}, updated_at=? WHERE reel_id=?",
                                (db.utc_now(), rid)).rowcount for rid in reel_ids)
 
-# ---------------------------------------------------------------- Phase 1 migration
-
 def migrate_phase1(path: Path | None = None, sources: dict[str, list[dict]] | None = None) -> dict:
-    """Import Phase-1 per-attempt JSONL lines (history, not canonical) into the job store.
-
-    Safe + resumable:
-      1. the file is first copied to output/backup/<name>.<sha12>.jsonl (content-addressed: re-runs reuse it);
-      2. records are always read from the backup, never from the file being rewritten;
-      3. each record is keyed by (session_id, reel_id), so re-running after an interruption skips what is
-         already imported and never duplicates attempts;
-      4. completion is recorded in meta; the canonical export is written once at the end.
-    """
+    """Safe and resumable: the source file is backed up first, and an interrupted migration resumes from the backup."""
     explicit = path is not None and Path(path).resolve() != config.OUTPUT_JSONL.resolve()
     path = Path(path or config.OUTPUT_JSONL)
     if not explicit:
-        # Default invocation: an interrupted (or completed) migration is resumed from its backup — never from
-        # enriched_reels.jsonl, which an export may already have overwritten with canonical records.
         marker = get_meta("phase1_migration_in_progress") or get_meta("phase1_migration")
         if marker:
             path = Path(json.loads(marker)["backup"])
@@ -426,7 +374,7 @@ def migrate_phase1(path: Path | None = None, sources: dict[str, list[dict]] | No
         if not line.strip():
             continue
         rec = json.loads(line)
-        if "processing" in rec:  # a canonical export, not a Phase-1 attempt line
+        if "processing" in rec:
             skipped += 1
             continue
         if record_attempt(rec, export=False)["duplicate"]:
@@ -434,7 +382,7 @@ def migrate_phase1(path: Path | None = None, sources: dict[str, list[dict]] | No
         else:
             imported += 1
     export_canonical()
-    with tx() as con:  # completion marker + clearing the in-progress marker happen atomically
+    with tx() as con:
         con.execute("INSERT INTO meta(key, value) VALUES('phase1_migration', ?) "
                     "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                     (json.dumps({"backup": str(backup), "imported": imported, "at": db.utc_now()}),))

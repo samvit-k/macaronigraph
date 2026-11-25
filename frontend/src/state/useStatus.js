@@ -1,7 +1,7 @@
+// Top-bar status from /api/status, /api/health and /api/graph/status.
 import { useEffect, useState } from 'react'
 import { api } from '../api/client.js'
 
-/** Summarise /api/status, /api/health and /api/graph/status for the top-bar chip. Pure, so it is unit-tested. */
 export function summarizeStatus({ jobs, health, graph, backendDown }) {
   if (backendDown) return { tone: 'bad', text: 'Backend Unreachable', detail: 'Start it with .venv/bin/uvicorn backend.app:app --port 8765' }
   const ig = jobs?.reels?.instagram ?? {}

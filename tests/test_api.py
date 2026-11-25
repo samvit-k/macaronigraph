@@ -1,4 +1,4 @@
-"""Backend end-to-end: simulated extension uploads of the generated clips → JSONL, validated vs ground truth."""
+"""Backend end to end: simulated extension uploads of the generated clips, validated against ground truth."""
 import hashlib
 import json
 
@@ -29,7 +29,6 @@ def assert_no_spooled_media():
     assert worker.pending_jobs() == [] and not list(worker.spool_dir().glob(".incoming-*"))
 
 def records():
-    """Attempt history (one line per processing attempt)."""
     return jobs.read_jsonl(jobs.attempts_jsonl())
 
 @pytest.mark.parametrize("rid", ["TESTCLIP01", "TESTCLIP02", "TESTCLIP03"])
@@ -43,12 +42,11 @@ def test_speech_clip_ok_and_matches_ground_truth(isolated_output, rid):
     assert "🔍" in rec["metadata"]["caption"] or rid != "TESTCLIP01"
     assert rec["metadata"]["raw"]["label_values"][0]["label"] == "URL"
     assert rec["source_url"].endswith(f"/test-media/page/{rid}")
-    # OCR segments are timestamped within each card's window (±1 sample interval)
     for c in gt["cards"]:
         if c["end"] - c["start"] >= 1.0:
             seg = next(s for s in rec["ocr"]["segments"] if c["text"] in s["text"])
             assert c["start"] - 1.0 <= seg["start"] <= c["end"] and seg["end"] <= c["end"] + 1.0
-    assert_no_spooled_media()  # temp media deleted
+    assert_no_spooled_media()
 
 def test_burned_in_subtitles_merge_into_one_segment_with_provenance(isolated_output):
     assert post_clip("TESTSUBS")["status"] == "ok"

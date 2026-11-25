@@ -1,9 +1,4 @@
-"""OPT-IN debug store of sampled JPEG frames for OCR evaluation. Disabled by default.
-
-Only Reels explicitly listed in output/eval_frames/selection.json (max MAX_SELECTED) have their *sampled
-frames* (never video, never audio) written to output/eval_frames/<reel_id>/<session_id>/, with the frame
-timestamps and transcript segments needed for offline OCR tuning. Everything stays on this machine
-(output/ is git-ignored). `purge` deletes all of it and disables the mode.
+"""Opt-in debug store of sampled frames for OCR evaluation; disabled by default and kept under output/.
 
 CLI:  python -m backend.evalframes enable <reel_id>... | status | purge
 """
@@ -18,7 +13,7 @@ from pathlib import Path
 from . import config
 
 MAX_SELECTED = 5
-_SAFE_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")  # Instagram shortcodes, test ids, session ids
+_SAFE_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 class UnsafeIdError(ValueError):
     pass
@@ -32,7 +27,6 @@ def _check_id(value: str | None, what: str) -> str:
     return value
 
 def _inside(path: Path) -> Path:
-    """Resolve and assert the path stays inside eval_dir() (defence in depth after _check_id)."""
     root, p = eval_dir().resolve(), path.resolve()
     if root != p and root not in p.parents:
         raise UnsafeIdError(f"path escapes {root}: {p}")
@@ -50,7 +44,6 @@ def enabled_for(reel_id: str | None) -> bool:
 
 def save(reel_id: str, session_id: str, frames: list[tuple[float, bytes]], interval_s: float,
          transcript: dict | None) -> Path | None:
-    """Write frames ONLY if reel_id is explicitly selected; otherwise do nothing and return None."""
     if not enabled_for(reel_id):
         return None
     d = _inside(eval_dir() / _check_id(reel_id, "reel_id") / _check_id(session_id, "session_id"))
@@ -67,7 +60,6 @@ def save(reel_id: str, session_id: str, frames: list[tuple[float, bytes]], inter
     return d
 
 def load(reel_id: str) -> tuple[list[tuple[float, bytes]], dict]:
-    """Latest saved capture for a Reel → (frames, meta)."""
     base = _inside(eval_dir() / _check_id(reel_id, "reel_id"))
     runs = sorted(base.glob("*/meta.json"), key=lambda p: p.stat().st_mtime)
     if not runs:

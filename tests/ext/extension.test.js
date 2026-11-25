@@ -1,4 +1,4 @@
-// node --test tests/ext
+// Extension tests (node --test tests/ext): crop geometry and background.js session start with a mocked chrome API.
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -9,16 +9,16 @@ const { cropPx } = require("../../extension/crop.js");
 const EXT = path.join(__dirname, "../../extension");
 
 test("crop: stream = viewport × dpr maps 1:1 after scaling", () => {
-  // 1280x800 CSS viewport @2x, stream 2560x1600; video centered 450 CSS px wide
+
   const c = cropPx(2560, 1600, { w: 1280, h: 800 }, { x: 415, y: 0, w: 450, h: 800 });
   assert.deepEqual(c, { x: 830, y: 0, w: 900, h: 1600 });
 });
 
 test("crop: letterboxed stream (aspect differs) is offset and scaled", () => {
-  // viewport 1000x500 (2:1) into 1000x1000 stream → scale 1, 250 px bars top/bottom
+
   const c = cropPx(1000, 1000, { w: 1000, h: 500 }, { x: 100, y: 50, w: 200, h: 100 });
   assert.deepEqual(c, { x: 100, y: 300, w: 200, h: 100 });
-  // pillarboxed: viewport 500x1000 into 1000x1000 → scale 1, 250 px bars left/right
+
   assert.deepEqual(cropPx(1000, 1000, { w: 500, h: 1000 }, { x: 0, y: 0, w: 500, h: 1000 }),
                    { x: 250, y: 0, w: 500, h: 1000 });
 });
@@ -35,7 +35,6 @@ test("crop: downscaled stream (maxWidth constraint) uses actual frame size", () 
   assert.deepEqual(d, { x: 320, y: 200, w: 320, h: 200 });
 });
 
-// ---- background.js with a mocked chrome API ----
 function loadBackground({ failAt }) {
   const calls = [];
   let offscreenOpen = false;
@@ -80,7 +79,7 @@ for (const failAt of ["getMediaStreamId", "start-capture"]) {
     assert.equal(isOpen(), false);
     assert.equal(bg._state(), null);
     assert.ok(calls.includes("fetch:/api/session/s1/finish"), "leased Reels must be released: " + calls.join(","));
-    // a second attempt is not blocked by stale state
+
     await assert.rejects(bg.start({ tabId: 1, source: "test", limit: 3, offset: 0, intervalMs: 1000 }),
                          (e) => !/already running/.test(e.message));
   });

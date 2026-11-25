@@ -1,10 +1,11 @@
+// Viewport fitting: legend insets, zoom limits, user-gesture tracking and resize handling.
 import { describe, expect, it } from 'vitest'
 import { createAutoFit, fitViewport, GRAPH_MIN_ZOOM, keepCenterPan, legendInsets, USER_VIEWPORT_EVENTS } from './viewport.js'
 
 const BB = { x1: -200, x2: 200, y1: -150, y2: 150, w: 400, h: 300 }
-// A tall legend card: area beside it (1200-468)*800 = 585,600 > area above it 1200*(800-332) = 561,600.
+
 const TALL_LEGEND = { left: 16, right: 456, top: 480, bottom: 784, width: 440, height: 304 }
-// A short, wide legend card: area beside it (1200-1012)*800 = 150,400 < area above it 1200*(800-112) = 825,600.
+
 const WIDE_LEGEND = { left: 16, right: 1000, top: 700, bottom: 784, width: 984, height: 84 }
 
 const box = (bb, view) => ({
@@ -15,10 +16,10 @@ const box = (bb, view) => ({
 describe('fitViewport', () => {
   it('fits the bounding box inside the canvas minus insets, centred in the free area', () => {
     const view = fitViewport(BB, { width: 1000, height: 800 }, { left: 300 }, { padding: 50, maxZoom: 5 })
-    // free area 700 x 800, minus padding -> 600 x 700; zoom = min(600/400, 700/300) = 1.5
+
     expect(view.zoom).toBeCloseTo(1.5)
     const b = box(BB, view)
-    expect(b.left).toBeGreaterThanOrEqual(300 + 50 - 0.01) // nothing under the legend strip
+    expect(b.left).toBeGreaterThanOrEqual(300 + 50 - 0.01)
     expect(b.right).toBeLessThanOrEqual(1000 - 50 + 0.01)
     expect((b.left + b.right) / 2).toBeCloseTo(300 + 700 / 2)
     expect(view.clipped).toBe(false)
@@ -33,7 +34,7 @@ describe('fitViewport', () => {
     const size = { width: 360, height: 640 }
     const padding = 48
     const view = fitViewport(big, size, {}, { padding })
-    expect(view.zoom).toBeLessThan(0.2) // below the old hard floor, which clipped this graph
+    expect(view.zoom).toBeLessThan(0.2)
     expect(view.clipped).toBe(false)
     const b = box(big, view)
     expect(b.left).toBeGreaterThanOrEqual(padding - 0.01)
@@ -46,7 +47,7 @@ describe('fitViewport', () => {
     const huge = { x1: -1e6, x2: 1e6, y1: -1e6, y2: 1e6, w: 2e6, h: 2e6 }
     const view = fitViewport(huge, { width: 400, height: 400 })
     expect(view.zoom).toBe(GRAPH_MIN_ZOOM)
-    expect(view.clipped).toBe(true) // never claimed to fit
+    expect(view.clipped).toBe(true)
     const b = box(huge, view)
     expect((b.left + b.right) / 2).toBeCloseTo(200)
     expect((b.top + b.bottom) / 2).toBeCloseTo(200)
@@ -81,8 +82,6 @@ describe('keepCenterPan', () => {
   })
 })
 
-/** Fake Cytoscape: like the real one, width()/height() are cached until resize(); only user gestures emit the
- *  USER_VIEWPORT_EVENTS; animate() is queued until flush(); stop() drops queued/running animations. */
 function fakeCy(width, height, bb = BB) {
   const state = { container: { width, height }, cached: { width, height }, zoom: 1, pan: { x: 0, y: 0 },
     resizes: 0, stops: 0, queue: [], onResize: null }
@@ -104,7 +103,7 @@ function fakeCy(width, height, bb = BB) {
     off: (events) => events.split(' ').forEach((e) => { delete handlers[e] }),
     emit: (e) => handlers[e]?.(),
     flush: () => { const a = state.queue.pop(); state.queue = []; if (a) { state.zoom = a.zoom; state.pan = a.pan } },
-    setContainer: (w, h) => { state.container = { width: w, height: h } }, // CSS layout changed; not yet measured
+    setContainer: (w, h) => { state.container = { width: w, height: h } },
   }
 }
 
@@ -114,22 +113,22 @@ describe('createAutoFit', () => {
     const fit = createAutoFit(cy, () => null, { animate: false })
     fit.fit()
     const wide = cy.state.zoom
-    cy.setContainer(900, 900) // Assistant panel opened
+    cy.setContainer(900, 900)
     fit.resized()
     expect(cy.state.resizes).toBe(1)
-    expect(box(BB, cy.state).right).toBeLessThanOrEqual(900) // every node still inside the narrower canvas
+    expect(box(BB, cy.state).right).toBeLessThanOrEqual(900)
     expect(cy.state.zoom).toBeLessThanOrEqual(wide)
 
-    cy.emit('scrollzoom')       // the user zooms by hand
+    cy.emit('scrollzoom')
     expect(fit.following).toBe(false)
     cy.state.zoom = 2
     cy.state.pan = { x: 333, y: 111 }
-    cy.setContainer(1400, 900)  // panel closed
+    cy.setContainer(1400, 900)
     fit.resized()
-    expect(cy.state.zoom).toBe(2)                          // no disruptive refit
-    expect(cy.state.pan).toEqual({ x: 333 + 250, y: 111 }) // the centre point stays centred
+    expect(cy.state.zoom).toBe(2)
+    expect(cy.state.pan).toEqual({ x: 333 + 250, y: 111 })
 
-    fit.fit()                   // the Fit control resumes following
+    fit.fit()
     expect(fit.following).toBe(true)
   })
 
@@ -138,11 +137,11 @@ describe('createAutoFit', () => {
     const fit = createAutoFit(cy, () => null, { animate: false })
     fit.fit()
     cy.setContainer(900, 900)
-    expect(cy.width()).toBe(1400) // still stale, as in Cytoscape
+    expect(cy.width()).toBe(1400)
     fit.resized()
     expect(cy.width()).toBe(900)
     expect(box(BB, cy.state).right).toBeLessThanOrEqual(900)
-    cy.setContainer(1400, 900)   // closing the panel again is detected too
+    cy.setContainer(1400, 900)
     fit.resized()
     expect(box(BB, cy.state).right).toBeGreaterThan(900)
   })
@@ -155,7 +154,7 @@ describe('createAutoFit', () => {
     cy.state.onResize = () => { reentries += 1; if (reentries < 50) fit.resized() }
     cy.setContainer(900, 900)
     fit.resized()
-    expect(cy.state.resizes).toBe(1) // the nested call was ignored
+    expect(cy.state.resizes).toBe(1)
     expect(box(BB, cy.state).right).toBeLessThanOrEqual(900)
   })
 
@@ -189,7 +188,7 @@ describe('createAutoFit', () => {
       cy.setContainer(w, 900)
       fit.resized(200)
     }
-    expect(cy.state.queue).toHaveLength(1) // earlier animations were stopped, not left running
+    expect(cy.state.queue).toHaveLength(1)
     expect(cy.state.stops).toBeGreaterThanOrEqual(4)
     cy.flush()
     expect(box(BB, cy.state).right).toBeLessThanOrEqual(900)
@@ -203,12 +202,12 @@ describe('createAutoFit', () => {
     fit.fit()
     legend = TALL_LEGEND
     fit.legendChanged()
-    expect(box(BB, cy.state).left).toBeGreaterThanOrEqual(468) // fitted beside the legend
+    expect(box(BB, cy.state).left).toBeGreaterThanOrEqual(468)
     legend = WIDE_LEGEND
     fit.legendChanged()
-    expect(box(BB, cy.state).bottom).toBeLessThanOrEqual(800 - 112) // fitted above the legend
+    expect(box(BB, cy.state).bottom).toBeLessThanOrEqual(800 - 112)
     const z = cy.state.zoom
-    fit.resized() // same size: nothing happens
+    fit.resized()
     expect(cy.state.zoom).toBe(z)
     fit.userAdjusted()
     const before = { ...cy.state.pan }

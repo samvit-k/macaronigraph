@@ -1,4 +1,4 @@
-// Filter popover (SanD Hacks pattern: checkbox + count per type, view toggles, reset).
+// Filter popover: concept types, edge kinds and view toggles, with per-row counts.
 import { useState } from 'react'
 import { DEFAULT_FILTERS, filterCounts } from '../graph/toElements.js'
 import { CONCEPT_ORDER, CONCEPT_TYPES, EDGE_KINDS, EDGE_ORDER } from '../graph/vocab.js'

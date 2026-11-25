@@ -1,4 +1,4 @@
-"""Phase 3 HTTP API: /api/search, /api/index/status, /api/index/sync, /api/health index summary."""
+"""Search HTTP API: /api/search, /api/index/status, /api/index/sync and the health index summary."""
 import pytest
 from fastapi.testclient import TestClient
 
@@ -7,7 +7,7 @@ from backend.app import app
 from test_chunking import oseg
 from test_indexer import add
 
-client = TestClient(app)   # no lifespan: the background worker/indexer threads are not started
+client = TestClient(app)
 
 @pytest.fixture(autouse=True)
 def _iso(isolated_output, monkeypatch):

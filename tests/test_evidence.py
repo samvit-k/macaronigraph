@@ -1,6 +1,4 @@
-"""Phase 4D passage selection within already-retrieved Reels (backend/evidence.py) over a real temporary index:
-answer-bearing passages of a pack Reel are added; no new Reels; nothing removed or reordered; caps and stale
-content hashes respected."""
+"""Passage selection within already-retrieved Reels over a real temporary index."""
 import pytest
 
 from backend import config, embedder, evidence, indexer, jobs
@@ -41,10 +39,10 @@ def test_adds_the_answer_bearing_passage_of_a_reel_already_in_the_pack(idx):
     assert len(ids) >= 3
     first = next(i for i in ids if "Round 1" in idx.get(ids=[i])["documents"][0])
     r = evidence.select("What happens in round 2?", pack_with(idx, first), {"sim_floor": 0.0})
-    assert r["sources"][0]["chunk_id"] == first                                  # existing source untouched
+    assert r["sources"][0]["chunk_id"] == first
     added = r["sources"][1:]
     assert added and "Round 2" in added[0]["text"] and added[0]["sid"] == "S2"
-    assert {s["reel_id"] for s in r["sources"]} == {"H"}                          # no new Reels
+    assert {s["reel_id"] for s in r["sources"]} == {"H"}
     assert added[0]["channels"][0]["type"] == "same_reel_passage"
 
 def test_caps_and_no_lexical_match_means_nothing_added(idx):

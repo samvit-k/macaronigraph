@@ -1,15 +1,8 @@
+// Conversation state with async safety: stale responses are discarded and queued answers are polled.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../api/client.js'
 
-// Conversation state, adapted from SanD Hacks' useChat to the MacaroniGraph conversational API.
-//
-// Async safety (same rules as SanD Hacks):
-//  - `gen` increments whenever the open conversation changes; every request captures it, and a response is applied
-//    only if the generation is unchanged — a late answer can never land in another conversation.
-//  - a synchronous ref guards `send`, so rapid Enter presses never start overlapping requests;
-//  - turns are merged by server turn id, so a slow reload never drops or duplicates a newer turn.
-// Queued answers (capture/processing is using the model) are polled with backoff until they leave "queued", also
-// after reopening the conversation.
+// A generation counter discards responses for a conversation that is no longer open, and turns merge by server id.
 
 export const QUEUED = 'queued'
 const POLL_START = 2000
@@ -26,7 +19,7 @@ export function useConversation({ client = api, pollStart = POLL_START, pollMax 
   const [conv, setConv] = useState({ id: null, turns: [], loading: false, pending: null, error: null })
   const gen = useRef(0)
   const sending = useRef(false)
-  const timers = useRef(new Map()) // turn_id -> timeout
+  const timers = useRef(new Map())
   const idRef = useRef(null)
   idRef.current = conv.id
 
@@ -55,7 +48,7 @@ export function useConversation({ client = api, pollStart = POLL_START, pollMax 
       try {
         next = await client.request(turn.request_id)
       } catch {
-        next = null // transient: keep polling
+        next = null
       }
       if (g !== gen.current) return
       if (next) setConv((s) => ({ ...s, turns: mergeTurns(s.turns, [next]) }))
@@ -104,7 +97,7 @@ export function useConversation({ client = api, pollStart = POLL_START, pollMax 
       return true
     } catch (e) {
       if (g !== gen.current) return false
-      // Nothing was stored for a failed request, so the same question can be retried as-is.
+
       setConv((s) => ({ ...s, pending: null, error: { kind: 'send', message: e.message, text: question } }))
       return false
     } finally {
@@ -125,7 +118,6 @@ export function useConversation({ client = api, pollStart = POLL_START, pollMax 
     await refreshList()
   }, [client, open, refreshList])
 
-  /** Delete every conversation, including the open one (the user confirmed it). */
   const removeAll = useCallback(async () => {
     const r = await client.clearConversations()
     await open(null)

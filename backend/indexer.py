@@ -1,24 +1,4 @@
-"""Phase 3: incremental semantic index (ChromaDB) over the canonical Reel records in SQLite.
-
-SQLite stays the source of truth. Chroma is a derived cache that can always be rebuilt from it.
-`index_state` (same pipeline.db, created additively) records what each collection holds per Reel:
-  (collection, reel_id) → canonical_attempt_id, content_hash, chunk_ids, status (indexed | empty | error)
-
-Sync (idempotent, crash-safe, resumable):
-  eligible Reels = canonical record with status ok / ok_no_speech / partial
-  unchanged canonical_attempt_id (attempt rows are immutable) → skipped without parsing or embedding
-  otherwise: chunk → hash; same hash → bookkeeping only; else embed → upsert → delete the Reel's obsolete
-  ids (queried from Chroma itself) → commit the index_state row LAST. A crash anywhere just redoes that Reel.
-  When the idle check fails mid-sync, buffered (not yet embedded) work is dropped uncommitted and redone
-  on the next sync; committed Reels stay committed.
-
-Rebuilds (embedding spec / chunker changed, or forced) go into a NEW collection while the active one keeps
-serving and keeps being updated. The new one becomes active only after catch-up with SQLite (repeated
-until a pass changes nothing) and a full verification pass; on failure the previous index stays active.
-The replaced collection is retired, then dropped once no search uses it and a grace period has passed.
-
-Automatic indexing runs only when capture and processing are idle; manual sync is always allowed.
-One writer: an in-process lock + an flock on output/chroma/.writer.lock (the backend holds it while running).
+"""Incremental semantic index (ChromaDB) over the canonical Reel records in SQLite.
 
 CLI:  python -m backend.indexer status | sync | rebuild | verify | search "query" [k]
 """
@@ -37,12 +17,12 @@ from datetime import datetime
 from . import chunking, config, db, embedder, jobs, worker
 
 ELIGIBLE = ("ok", "ok_no_speech", "partial")
-EMBED_BATCH_CHUNKS = 64       # chunks embedded per model call (spanning several Reels)
+EMBED_BATCH_CHUNKS = 64
 CATCHUP_MAX_PASSES = 5
-VERIFY_ROUNDS = 3             # catch-up + verify attempts before a rebuild is reported failed_verification
+VERIFY_ROUNDS = 3
 POLL_S = 60
 STOP_JOIN_S = 30
-RETIRE_GRACE_S = 300          # a replaced collection outlives the switch at least this long (other processes)
+RETIRE_GRACE_S = 300
 TYPE_GROUPS = {"caption": ["caption"], "transcript": ["transcript"],
                "ocr": ["ocr", "ocr_title", "ocr_fragment"], "ocr_title": ["ocr_title"],
                "ocr_fragment": ["ocr_fragment"], "ocr_screen": ["ocr"]}
@@ -71,14 +51,11 @@ def _ensure_schema() -> None:
     with _db():
         pass
 
-# ---------------------------------------------------------------- writer lock
-
-_fd_lock = threading.Lock()        # guards _lock_fd and the client cache
-_write_lock = threading.RLock()    # held for the whole duration of any index write
+_fd_lock = threading.Lock()
+_write_lock = threading.RLock()
 _lock_fd = None
 
 def acquire_writer() -> bool:
-    """Take the cross-process writer lock (non-blocking). True if this process holds it."""
     global _lock_fd
     with _fd_lock:
         if _lock_fd is not None:
@@ -95,7 +72,7 @@ def acquire_writer() -> bool:
         return True
 
 def release_writer() -> bool:
-    """Release the cross-process lock — never while another thread is inside a write. → released?"""
+    """Never released while another thread is inside a write."""
     global _lock_fd
     if not _write_lock.acquire(blocking=False):
         return False
@@ -114,7 +91,6 @@ def holds_writer() -> bool:
 
 @contextmanager
 def writing():
-    """Serialize index writes in-process and across processes."""
     with _write_lock:
         held = _lock_fd is not None
         if not held and not acquire_writer():
@@ -124,8 +100,6 @@ def writing():
         finally:
             if not held:
                 release_writer()
-
-# ---------------------------------------------------------------- chroma
 
 _clients: dict[str, object] = {}
 
@@ -170,14 +144,11 @@ def _meta_json(key: str):
     v = jobs.get_meta(key)
     return json.loads(v) if v else None
 
-# ---------------------------------------------------------------- readers + retirement of replaced collections
-
 _readers: Counter = Counter()
 _readers_lock = threading.Lock()
 
 @contextmanager
 def reading():
-    """Pin the active collection for one search: it cannot be dropped while pinned."""
     with _readers_lock:
         name = active_collection()
         if name:
@@ -194,15 +165,14 @@ def _retire(name: str) -> None:
     jobs.set_meta(K_RETIRED, json.dumps(retired + [{"name": name, "at": time.time()}]))
 
 def cleanup_retired(now: float | None = None) -> list[str]:
-    """Drop retired collections that are past the grace period and not in use by any search here."""
     now = now or time.time()
     retired = _meta_json(K_RETIRED) or []
     keep, dropped = [], []
     with writing():
         for r in retired:
-            with _readers_lock:                       # no new reader can pin it while we decide and drop
+            with _readers_lock:
                 if r["name"] == jobs.get_meta(K_ACTIVE):
-                    continue                          # re-activated: not retired any more
+                    continue
                 if _readers[r["name"]] == 0 and now - r["at"] >= RETIRE_GRACE_S:
                     _drop_collection(r["name"])
                     dropped.append(r["name"])
@@ -211,10 +181,7 @@ def cleanup_retired(now: float | None = None) -> list[str]:
         jobs.set_meta(K_RETIRED, json.dumps(keep))
     return dropped
 
-# ---------------------------------------------------------------- SQLite side (read-only for jobs tables)
-
 def eligible() -> dict[str, dict]:
-    """Reels whose canonical record should be searchable → {reel_id: {source, aid, status}}."""
     with _db() as con:
         rows = con.execute("""SELECT r.reel_id, r.source, r.canonical_attempt_id AS aid, a.status
                               FROM reels r JOIN attempts a ON a.attempt_id = r.canonical_attempt_id""").fetchall()
@@ -244,9 +211,6 @@ def _write_state(collection: str, rid: str, aid: int | None, h: str | None, ids:
                     (collection, rid, aid, h, json.dumps(ids), len(ids), status, error, db.utc_now()))
 
 def _write_error(collection: str, rid: str, aid: int, prev: dict | None, msg: str) -> None:
-    """Record a failed (re)index WITHOUT forgetting the last successful one: the row keeps the previously
-    committed attempt id, content hash and chunk_ids, so those chunks stay protected and searchable. The row's
-    `error` status makes the next sync retry it, and verification refuses to activate a collection with it."""
     if prev and prev.get("status") in ("indexed", "empty", "error") and prev.get("chunk_ids"):
         _write_state(collection, rid, prev["canonical_attempt_id"], prev["content_hash"],
                      json.loads(prev["chunk_ids"]), "error", f"attempt {aid}: {msg}")
@@ -258,10 +222,7 @@ def _delete_state(collection: str, rids: list[str]) -> None:
         with jobs.tx() as con:
             con.executemany("DELETE FROM index_state WHERE collection=? AND reel_id=?", [(collection, r) for r in rids])
 
-# ---------------------------------------------------------------- sync
-
 def _apply(col, collection: str, rid: str, aid: int, chunks: list[dict], vecs, h: str) -> None:
-    """Make Chroma hold exactly `chunks` for this Reel, then record it (bookkeeping last)."""
     ids = [c["id"] for c in chunks]
     if chunks:
         col.upsert(ids=ids, embeddings=[v.tolist() for v in vecs], documents=[c["text"] for c in chunks],
@@ -278,10 +239,6 @@ def _remove_reel(col, collection: str, rid: str) -> None:
     _delete_state(collection, [rid])
 
 def sweep_orphans(col, collection: str, elig: dict) -> int:
-    """Delete every chunk the bookkeeping does not expect: chunks of ineligible / unrecorded Reels, and chunks
-    whose id is not in their Reel's recorded chunk_ids. Error rows keep the last successful chunk_ids
-    (_write_error), so a failed re-index never deletes previously valid embeddings. Runs after every
-    completed sync, also when nothing needed re-embedding. → number deleted"""
     rows = state_rows(collection)
     expected = {rid: set(json.loads(r["chunk_ids"] or "[]")) for rid, r in rows.items()}
     got = col.get(include=["metadatas"])
@@ -292,9 +249,6 @@ def sweep_orphans(col, collection: str, elig: dict) -> int:
     return len(orphans)
 
 def sync_collection(collection: str, should_continue=None) -> dict:
-    """Bring one collection up to date with SQLite (with its own embedding model). When `should_continue()`
-    turns False, stop before the next embedding call: buffered work is dropped uncommitted (redone next
-    time), committed Reels stay."""
     t0 = time.time()
     col = get_collection(collection)
     emb = embedder.for_spec(spec_of(col))
@@ -308,7 +262,7 @@ def sync_collection(collection: str, should_continue=None) -> dict:
             st["stopped"] = True
         return not st["stopped"]
 
-    for rid in [r for r in rows if r not in elig]:                    # no longer eligible
+    for rid in [r for r in rows if r not in elig]:
         _remove_reel(col, collection, rid)
         st["removed"] += 1
 
@@ -325,16 +279,16 @@ def sync_collection(collection: str, should_continue=None) -> dict:
     def flush() -> None:
         if not batch:
             return
-        if not go_on():                                # idle check failed: no new embedding batch
+        if not go_on():
             st["deferred"] += len(batch)
             batch.clear()
             return
         texts = [chunking.embed_text(c) for _, _, chunks, _ in batch for c in chunks]
         try:
             from . import models
-            with models.heavy("index embedding"):        # never alongside answer generation or graph extraction
+            with models.heavy("index embedding"):
                 vecs = emb.encode_docs(texts) if texts else []
-        except Exception as ex:  # noqa: BLE001 — record, never crash the sync
+        except Exception as ex:  # noqa: BLE001
             for rid, e, _, h in batch:
                 _write_error(collection, rid, e["aid"], rows.get(rid), f"embedding failed: {ex}")
                 st["errors"] += 1
@@ -372,7 +326,7 @@ def sync_collection(collection: str, should_continue=None) -> dict:
         batch.clear()
     else:
         flush()
-    if not st["stopped"]:                               # cheap at this scale (one metadata scan)
+    if not st["stopped"]:
         st["orphans_deleted"] = sweep_orphans(col, collection, elig)
     st["duration_s"] = round(time.time() - t0, 2)
     return st
@@ -380,17 +334,14 @@ def sync_collection(collection: str, should_continue=None) -> dict:
 def _changed(st: dict) -> bool:
     return any(st[k] for k in ("embedded", "unchanged_hash", "removed", "orphans_deleted", "errors"))
 
-# ---------------------------------------------------------------- verification
-
 def verify(collection: str) -> dict:
-    """Is `collection` complete and consistent with the eligible canonical records in SQLite right now?"""
     col = get_collection(collection)
     spec = spec_of(col)
     emb = embedder.for_spec(spec)
     elig = eligible()
     rows = state_rows(collection)
     problems: list[str] = []
-    expected_ids: dict[str, str] = {}               # chunk id → expected content hash
+    expected_ids: dict[str, str] = {}
     missing_rows = sorted(set(elig) - set(rows))
     extra_rows = sorted(set(rows) - set(elig))
     error_rows = sorted(r for r, v in rows.items() if v["status"] == "error")
@@ -433,13 +384,10 @@ def verify(collection: str) -> dict:
     return {"collection": collection, "ok": not problems, "problems": problems,
             "counts": {"eligible": len(elig), "rows": len(rows), "chunks": len(ids), "expected_chunks": len(expected_ids)}}
 
-# ---------------------------------------------------------------- rebuild / sync orchestration
-
 def _set_build(state: str, **kw) -> None:
     jobs.set_meta(K_BUILD, json.dumps({"state": state, "at": db.utc_now(), **kw}))
 
 def build(force: bool = False, should_continue=None) -> dict:
-    """Build (or resume building) a collection for the current spec; activate it only once verified."""
     with writing():
         _ensure_schema()
         spec = embedder.current_spec()
@@ -449,7 +397,7 @@ def build(force: bool = False, should_continue=None) -> dict:
         if building and (building not in collections()
                          or embedder.signature(spec_of(get_collection(building))) != sig):
             if building in collections():
-                _drop_collection(building)                     # a build for an outdated spec (never searched)
+                _drop_collection(building)
             jobs.set_meta(K_BUILDING, "")
             building = None
         if not force and not building and active and embedder.signature(spec_of(get_collection(active))) == sig:
@@ -461,7 +409,7 @@ def build(force: bool = False, should_continue=None) -> dict:
 
         result = {"collection": building, "replaces": active, "passes": []}
         for _ in range(VERIFY_ROUNDS):
-            for _ in range(CATCHUP_MAX_PASSES):                # catch up with SQLite until a pass changes nothing
+            for _ in range(CATCHUP_MAX_PASSES):
                 st = sync_collection(building, should_continue)
                 result["passes"].append(st)
                 if st["stopped"]:
@@ -477,24 +425,23 @@ def build(force: bool = False, should_continue=None) -> dict:
             _set_build("failed_verification", collection=building, replaces=active, problems=v["problems"])
             return {**result, "state": "failed_verification"}
 
-        with _readers_lock, jobs.tx() as con:                  # atomic switch
+        with _readers_lock, jobs.tx() as con:  # atomic switch
             con.execute("INSERT INTO meta(key, value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                         (K_ACTIVE, building))
             con.execute("DELETE FROM meta WHERE key=?", (K_BUILDING,))
         if active and active != building:
-            _retire(active)                                     # dropped later by cleanup_retired()
+            _retire(active)
         _set_build("activated", collection=building, replaced=active)
         return {**result, "state": "activated"}
 
 def sync_all(rebuild: bool = False, should_continue=None) -> dict:
-    """Keep the active collection current; build/resume a new one when needed (or forced)."""
     with writing():
         _ensure_schema()
         t0 = time.time()
         out: dict = {"at": db.utc_now(), "retired_dropped": cleanup_retired()}
         known = set(collections())
         retired = {r["name"] for r in _meta_json(K_RETIRED) or []}
-        with jobs.tx() as con:                                  # bookkeeping for collections that no longer exist
+        with jobs.tx() as con:
             for (name,) in con.execute("SELECT DISTINCT collection FROM index_state").fetchall():
                 if name not in known and name not in retired:
                     con.execute("DELETE FROM index_state WHERE collection=?", (name,))
@@ -514,14 +461,11 @@ def sync_all(rebuild: bool = False, should_continue=None) -> dict:
         jobs.set_meta(K_LAST, json.dumps(out))
         return out
 
-# ---------------------------------------------------------------- idle gate + background thread
-
 def busy_reason(quiet_s: float | None = None, now: float | None = None) -> str | None:
-    """Why automatic indexing must not run now (None = idle)."""
     now = now or time.time()
     spool = worker.spool_dir()
     if spool.exists():
-        live = [p for p in spool.iterdir() if p.name != ".dead"]      # queued, processing or being uploaded
+        live = [p for p in spool.iterdir() if p.name != ".dead"]
         if live:
             return f"processing ({len(live)} job(s) in the spool)"
     with _db() as con:
@@ -589,15 +533,14 @@ def _loop() -> None:
 def start() -> None:
     global _thread
     _stop.clear()
-    acquire_writer()                    # best effort; the loop retries if another process holds it
+    acquire_writer()
     if _thread is None or not _thread.is_alive():
         _thread = threading.Thread(target=_loop, name="reel-indexer", daemon=True)
         _thread.start()
     _wake.set()
 
 def stop() -> bool:
-    """Stop the indexer thread. The writer lock is released only once the thread has exited (and no write
-    is in progress); otherwise it stays held so no second writer can start. → fully stopped?"""
+    """The writer lock is released only after the thread has exited, so no second writer can start."""
     _stop.set()
     _wake.set()
     if _thread is not None:
@@ -608,14 +551,11 @@ def stop() -> bool:
     return release_writer()
 
 def request_sync(rebuild: bool = False, wait: bool = False) -> dict:
-    """Manual sync: always allowed (even while capture runs)."""
     if wait or _thread is None or not _thread.is_alive():
         return sync_all(rebuild=rebuild)
     _requests.append({"rebuild": rebuild})
     _wake.set()
     return {"accepted": True, "queued_requests": len(_requests)}
-
-# ---------------------------------------------------------------- search
 
 def _where(source: str | None, types: list[str] | None) -> dict | None:
     clauses = []
@@ -665,8 +605,6 @@ def search(q: str, k: int = 10, source: str | None = "instagram", types: list[st
             r["passages"].append({k_: v for k_, v in h.items() if k_ not in ("_reel", "reel_id")})
     out["results"] = list(reels.values())[:k]
     return out
-
-# ---------------------------------------------------------------- status
 
 def status() -> dict:
     _ensure_schema()

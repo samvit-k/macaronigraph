@@ -1,22 +1,19 @@
-"""Assemble the enriched record and decide its status (never a false success). Persistence: jobs.py."""
+"""Assemble the enriched record and decide its status (never a false success)."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
 
 from . import config
 
-# Playback outcomes reported by the extension that make the item unusable.
 FATAL_PLAYBACK = {"unavailable", "no_video", "auth_required", "playback_blocked", "capture_lost",
                   "capture_error", "navigation_error", "aborted"}
 MIN_COVERAGE = 0.9
-TRANSCRIPT_DONE = {"ok", "skipped"}   # "skipped" = measured silent; transcription deliberately not run
-OCR_DONE = {"ok"}                     # "ok" with zero segments is a valid "no on-screen text" result
+TRANSCRIPT_DONE = {"ok", "skipped"}
+OCR_DONE = {"ok"}
 
 MUTED_MIN_S, MUTED_MAX_FRACTION = 1.0, 0.15
 
 def muted_too_long(capture: dict) -> bool:
-    """Muted long enough that speech may be missing. Legacy captures without a measured duration keep the
-    strict rule (any mute → error)."""
     if not capture.get("muted"):
         return False
     muted_s = capture.get("muted_s")
@@ -25,15 +22,12 @@ def muted_too_long(capture: dict) -> bool:
     return muted_s > max(MUTED_MIN_S, MUTED_MAX_FRACTION * (capture.get("captured_s") or 0))
 
 def warnings_for(capture: dict) -> list[str]:
-    """Non-fatal observations recorded on the record (they never change the status)."""
     w = []
     if capture.get("muted") and capture.get("muted_s") is not None and not muted_too_long(capture):
         w.append(f"briefly_muted: {capture['muted_s']:.1f}s of {capture.get('captured_s') or 0:.1f}s")
     return w
 
 def decide_status(capture: dict, transcript: dict | None, ocr: dict | None) -> tuple[str, list[str]]:
-    """→ (status, errors). status ∈ ok | ok_no_speech | partial | failed.
-    ok/ok_no_speech require: usable playback, ≥90% coverage, AND both extractors completed."""
     errors: list[str] = []
     playback = capture.get("playback") or "unknown"
     if playback in FATAL_PLAYBACK:
@@ -80,7 +74,6 @@ def decide_status(capture: dict, transcript: dict | None, ocr: dict | None) -> t
     return "partial", [f"unclassified_audio: {t.get('audio_class')}"]
 
 def passages(reel_id: str, url: str, caption: str, transcript: dict | None, ocr: dict | None) -> list[dict]:
-    """Provenance-tagged text units (input for Phase 3 chunking/indexing; nothing is indexed here)."""
     out = []
 
     def add(kind: str, n: int, text: str, start=None, end=None, **extra):

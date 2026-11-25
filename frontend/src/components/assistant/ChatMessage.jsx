@@ -1,8 +1,4 @@
-// One exchange (question + answer turn). Visual languages stay strictly apart (SanD Hacks principle):
-//  - generated answer: a box headed "Generated Answer · Local Model" — the model's wording, with citation chips;
-//  - exact search: listings/counts produced without the model, labelled as such;
-//  - original sources: cited passages are opened in the inspector as quotations with their evidence type;
-//  - app notes (waiting, unavailable, errors): plain status cards, never styled as model output.
+// One exchange: generated answers, exact-search listings and app notes are rendered in visibly distinct styles.
 import { contentType } from '../../graph/vocab.js'
 
 const CITE = /\[(S\d+)\]/g
@@ -11,7 +7,6 @@ export function isListing(turn) {
   return typeof turn?.intent === 'string' && turn.intent.startsWith('listing_')
 }
 
-/** The scope note that deterministic listings append after a blank line. */
 export function listingScope(turn) {
   const parts = (turn?.answer?.text ?? '').split('\n\n')
   return parts.length > 1 ? parts.slice(1).join('\n\n') : ''
@@ -32,7 +27,6 @@ function CiteChip({ sid, turn, onCite }) {
   )
 }
 
-/** Sentence text with any inline [S#] markers removed (citations are rendered as chips after the sentence). */
 const clean = (t) => (t ?? '').replace(CITE, '').replace(/\s+([.,;:!?])/g, '$1').trim()
 
 function Sentence({ s, turn, onCite }) {
@@ -136,7 +130,6 @@ export function StatusCard({ turn }) {
   return null
 }
 
-/** Minimize/expand control for one exchange (copied from SanD Hacks' ChatMessage). */
 function MinimizeButton({ collapsed, onToggle }) {
   return (
     <button type="button" className="chat-min-btn" onClick={onToggle} aria-expanded={!collapsed}

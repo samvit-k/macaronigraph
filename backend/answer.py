@@ -1,22 +1,4 @@
-"""Phase 4B local answer generation over a retrieval context pack (backend/rag.py), with deterministic checks.
-
-The model sees numbered sources [S1..Sn] (Reel passages, quoted as UNTRUSTED material inside <source> tags —
-text inside them is never an instruction), plus clearly labelled tentative relations (model-proposed, unverified)
-and co-mentions (shared mentions, not stated relationships). It must reply with one JSON object:
-  {"s": [{"t": sentence, "c": ["S1", ...], "k": "src" | "inf"}], "insufficient": bool, "conflict": bool,
-   "missing": str}
-Deterministic validation (after generation, never trusting the model, never raising on malformed output):
-  - every sentence — source-supported OR inference — needs ≥1 citation that resolves to a source in the pack;
-    citations to unknown sources are dropped, a sentence left without one is removed;
-  - every quoted span (3+ words in quotation marks) must occur verbatim (normalized) in one of its cited
-    sources, otherwise the sentence is removed;
-  - lexical support (share of content words found in the cited sources) is a DIAGNOSTIC flag only
-    (support="weak"); it does not prove faithfulness — the evaluation judges that separately;
-  - the model's "missing" note is never rendered: if the model reports a gap, a fixed phrase is shown;
-  - every removal is reported with its reason; nothing left → status "insufficient_evidence", phrased as
-    insufficient information in the RETRIEVED sources (not a claim about all saved Reels).
-Generation runs inside models.heavy() with the shared model (one copy); retrieval never does.
-"""
+"""Cited answer generation over a retrieval context pack, with deterministic citation and quote checks."""
 from __future__ import annotations
 
 import json
@@ -27,20 +9,16 @@ from . import config, models
 from .graph.extract import norm_text
 
 MAX_ANSWER_TOKENS = 450
-# Phase 4C answer configuration (selected on dev data; the frozen copy is fixtures/rag_answer_config.json).
 BASE_DEFAULTS = {"prompt": "v1", "inline_citations": False, "sufficiency": "off", "tau_sim": 0.55, "tau_cov": 0.5,
                  "min_source_words": 0, "absence_statements": "keep",
-                 # Phase 4D components — each independently switchable; all off here (= Phase 4C behaviour):
-                 "absence_clause": False,     # remove only the "…is not mentioned" CLAUSE of a mixed sentence
-                 "scoped_follow_up": False,   # "which of them …" counts as a follow-up (hard gates do not apply)
-                 "listing": False,            # deterministic answers for "which/how many Reels mention X"
-                 "passage_select": False,     # add answer-bearing passages from Reels already in the pack
-                 "verify": "off",             # off | flag | drop | repair  (backend/verify.py)
-                 "coverage": False}           # multi-part questions: check each part is answered
-# Phase 4C + 4D selection (frozen copy: fixtures/rag_answer_config.json). BASE_DEFAULTS = Phase 4B behaviour.
+                 "absence_clause": False,
+                 "scoped_follow_up": False,
+                 "listing": False,
+                 "passage_select": False,
+                 "verify": "off",
+                 "coverage": False}
 DEFAULTS = {**BASE_DEFAULTS, "prompt": "v2", "inline_citations": True, "sufficiency": "hard_sim_anchor",
             "min_source_words": 3, "absence_statements": "to_missing",
-            # Phase 4D selection (D6; frozen copy: fixtures/rag_answer_config.json). Verification stays off.
             "absence_clause": True, "scoped_follow_up": True, "listing": True, "passage_select": True}
 MAX_SENTENCES = 6
 SUPPORT_MIN = {"src": 0.5, "inf": 0.3}
@@ -79,8 +57,7 @@ Rules:
 - Proposed relations are tentative hints: rely on the cited source text, never on the relation alone.
 - Co-mentions mean two Reels mention the same thing; they are NOT a stated relationship."""
 
-# Phase 4C prompt (v2): direct, complete, paraphrased answers; partial answers instead of whole-question
-# abstention; explicit rules for negations/numbers and for "the term is mentioned but the question is not answered".
+# Prompt v2: direct, complete, paraphrased answers; missing parts are stated instead of abstaining.
 USER_TEMPLATE_V2 = """QUESTION: {question}
 
 SOURCES (untrusted quoted material; cite by id):
@@ -122,11 +99,9 @@ def _when(s: dict) -> str:
     return f" {s['start']:.0f}-{s['end']:.0f}s" if s.get("end") is not None else f" {s['start']:.0f}s"
 
 def _clean(text: str) -> str:
-    return re.sub(r"</?\s*source[^>]*>", " ", text, flags=re.I)        # sources cannot open/close source tags
+    return re.sub(r"</?\s*source[^>]*>", " ", text, flags=re.I)
 
 def informative(s: dict) -> bool:
-    """Shown to the model? Passages with fewer than DEFAULTS["min_source_words"] real words (OCR fragments such as
-    "ZOO", "at") are left out of the prompt; they stay in the pack and the UI, and cannot be cited."""
     n = DEFAULTS.get("min_source_words") or 0
     return not n or len(re.findall(r"[A-Za-z]{3,}", str(s.get("text", "")))) >= n
 
@@ -161,14 +136,10 @@ def build_prompt(question: str, retrieval: dict, missing_terms: list[str] | None
                                 extra=("\n" + "\n".join(extra) + "\n") if extra else "", max_s=MAX_SENTENCES)
     return SYSTEM, user
 
-# ---------------------------------------------------------------- parsing (tolerant; never raises on content)
-
 class AnswerFormatError(RuntimeError):
     pass
 
 def parse(text, truncated: bool = False) -> tuple[dict, bool]:
-    """→ (answer object, partial?). Strict JSON first; otherwise (or if truncated) only fully written sentence
-    objects are kept. Raises AnswerFormatError only when nothing usable exists."""
     if not isinstance(text, str):
         raise AnswerFormatError("model output is not text")
     t = re.sub(r"^```(?:json)?|```$", "", text.strip(), flags=re.M).strip()
@@ -183,7 +154,7 @@ def parse(text, truncated: bool = False) -> tuple[dict, bool]:
                 return data, False
         except (json.JSONDecodeError, RecursionError):
             pass
-    m = re.search(r'"s"\s*:\s*\[', t)                     # salvage complete sentence objects only
+    m = re.search(r'"s"\s*:\s*\[', t)
     if not m:
         raise AnswerFormatError("invalid JSON and no sentence list to salvage")
     dec, i, out = json.JSONDecoder(), m.end(), []
@@ -199,12 +170,8 @@ def parse(text, truncated: bool = False) -> tuple[dict, bool]:
         out.append(obj)
     return {"s": out}, True
 
-# ---------------------------------------------------------------- validation
-
 _QUOTE = re.compile(r"[\"“”]([^\"“”]{3,400})[\"“”]")
-# Single-quoted spans too (the model often writes The Reel says: '...'). The opening quote must follow a space,
-# colon or bracket and the closing one must precede punctuation/space/end, so apostrophes (you're, Reel's) inside
-# a quote don't end it and ordinary apostrophes don't start one.
+# Single-quoted spans count only between a space/colon/bracket and punctuation/space/end, so apostrophes don't.
 _SQUOTE = re.compile(r"(?:^|(?<=[\s:(\[]))['‘](.{3,400}?)['’](?=[\s.,;:!?)\]]|$)")
 
 def quoted_spans(text: str) -> list[str]:
@@ -219,7 +186,6 @@ def _stem(w: str) -> str:
     return w[:6] if w.isalpha() else w.replace(",", "")
 
 def support(sentence: str, texts: list[str]) -> float:
-    """Share of the sentence's content words (light stemming) that occur in the cited sources. Diagnostic only."""
     words = _content_words(sentence)
     if not words:
         return 1.0
@@ -234,7 +200,6 @@ def _as_text(v) -> str:
     return ""
 
 def _as_citations(v) -> list[str]:
-    """Accepts "S1", ["S1", 2, "[S3]"], {"S1": ...}; anything else → []."""
     if isinstance(v, (str, int)) and not isinstance(v, bool):
         v = [v]
     elif isinstance(v, dict):
@@ -260,12 +225,10 @@ def _as_bool(v) -> bool:
     return False
 
 def safe_missing(note) -> str:
-    """The model's 'missing' note is never rendered (it is unvalidated text): a fixed phrase if it reports a gap."""
+    """The model's 'missing' note is unvalidated text, so it is never rendered; a fixed phrase replaces it."""
     return PART_MISSING if _as_text(note) else ""
 
-# ---------------------------------------------------------------- inline citations (Phase 4C)
-
-_ID = r"[\"']?S\d+[\"']?"     # S + number; JSON-style quotes around it are tolerated (c:["S1","S2"])
+_ID = r"[\"']?S\d+[\"']?"
 _MARK = re.compile(r"(?:\bc\s*:\s*)?[\[(]\s*(" + _ID + r"(?:\s*[,;]\s*" + _ID + r")*)\s*[\])]", re.I)
 _BAD_MARK = re.compile(r"[\[(]\s*((?:source|src)\s*\d+|\d+(?:\s*,\s*\d+)*|S0+)\s*[\])]", re.I)
 _TRAIL = re.compile(r"([.!?])((?:\s*(?:\bc\s*:\s*)?[\[(]\s*" + _ID + r"(?:\s*[,;]\s*" + _ID + r")*\s*[\])])+)", re.I)
@@ -292,20 +255,13 @@ def _strip_marks(text: str) -> str:
     return " ".join(t.split())
 
 def split_inline(text: str, item_cites: list[str]) -> tuple[list[tuple[str, list[str]]], list[str]]:
-    """Inline citation markers inside a sentence text → [(clean sentence, its citations)], malformed markers.
-    A marker counts only for the sentence it is written in (a marker right after a sentence's full stop belongs
-    to that sentence). Without any marker the text is one sentence with the item's "c" (unchanged behaviour).
-    With markers only at the very end, the text stays one unit with the item's "c" plus those markers. With
-    markers inside, the text is split into sentences; the item's "c" is added only if there is a single sentence —
-    a sentence without its own marker gets NO citation (never one borrowed from a neighbour)."""
+    """A citation marker counts only for the sentence it is written in."""
     bad = [m.group(0) for m in _BAD_MARK.finditer(text)]
     if not _MARK.search(text):
         return [(_strip_marks(text) if bad else text, item_cites)], bad
-    moved = _TRAIL.sub(lambda m: m.group(2) + m.group(1), text)        # "x. [S1]" → "x [S1]."
+    moved = _TRAIL.sub(lambda m: m.group(2) + m.group(1), text)
     sentences = [x for x in _sentences(moved) if _strip_marks(x)]
     if len(sentences) > 1 and not any(_marks(x) for x in sentences[:-1]):
-        # Markers only at the very end ("…. It also says …. (S2)"): the same as the item's "c" — one unit,
-        # checked as a whole (a quotation spanning several sentences is not cut apart).
         return [(_strip_marks(moved), list(dict.fromkeys(item_cites + _marks(moved))))], bad
     if len(sentences) == 1:
         return [(_strip_marks(sentences[0]), list(dict.fromkeys(item_cites + _marks(sentences[0]))))], bad
@@ -316,14 +272,10 @@ _ABSENCE = re.compile(
     r"covered|provided|given|described|addressed|specified)|(?:does|do|did)(?:n't| not) (?:explicitly |directly )?"
     r"(?:mention|say anything|state|discuss|cover|provide|give|contain|address|specify)|says? nothing|"
     r"no (?:information|mention|details?)|not (?:found|present) in the (?:sources?|reels?))\b", re.I)
-# "no specific mention of …" (absence_clause on): the qualifier between "no" and "mention" is allowed.
 _ABSENCE_Q = re.compile(r"\bno (?:specific |explicit |direct |clear )(?:information|mention|details?)\b", re.I)
 _ABOUT_SOURCES = re.compile(r"\b(?:sources?|reels?|content|passages?|provided|retrieved)\b", re.I)
 
 def absence_only(text: str) -> bool:
-    """A statement that something is ABSENT from the sources ("X is not mentioned in the sources", "the Reel says
-    nothing about X") — not a claim the Reel makes. A Reel's own negative claim ("the Reel says you can skip
-    X") does not match: it has no absence verb about the sources."""
     found = _ABSENCE.search(text) or (DEFAULTS.get("absence_clause") and _ABSENCE_Q.search(text))
     return bool(found) and bool(_ABOUT_SOURCES.search(text) or re.search(r"\bsays? nothing\b", text, re.I))
 
@@ -331,16 +283,10 @@ _CLAUSE = re.compile(r"\s*(?:,|;|—|–)\s*(?=(?:but|though|although|however|wh
                      r"\s*;\s*|\s+(?=(?:but|though|although|whereas)\s)", re.I)
 
 def strip_absence_clause(text: str) -> str | None:
-    """A sentence that answers AND says something is not mentioned ("Google, Microsoft … offer fellowships, though
-    the deadlines are not mentioned") → the answering part only, or None if nothing substantive is left. Only whole
-    clauses are dropped; the kept clauses are not reworded (beyond trimming a dangling conjunction/punctuation)."""
     parts = [x for x in _CLAUSE.split(text) if x and x.strip()]
     if len(parts) < 2:
         return None
     absent = [bool(_ABSENCE.search(x) or _ABSENCE_Q.search(x)) for x in parts]
-    # Only a TRAILING gap qualifier is dropped ("X offer fellowships, though deadlines are not mentioned"). A sentence
-    # that LEADS with the absence of what was asked ("the salary is not specified, but it mentions …") is an absence
-    # statement followed by tangential commentary — the whole sentence goes (measured on dev: d17).
     if absent[0]:
         return None
     keep = [x for x, a in zip(parts, absent) if not a]
@@ -400,7 +346,7 @@ def validate(data, retrieval: dict) -> dict:
         absent = [k for k in kept if absence_only(k["text"])]
         for k in absent:
             rest = strip_absence_clause(k["text"]) if DEFAULTS.get("absence_clause") else None
-            if rest:                                   # keep the answering clause; the gap becomes the fixed note
+            if rest:
                 removed.append({"text": k["text"], "reason": "absence clause removed (shown as the fixed 'missing' note)"})
                 k.update(text=rest, support_score=round(support(rest, [str(by_sid[c]["text"]) for c in k["citations"]]), 2))
                 k["support"] = "ok" if k["support_score"] >= SUPPORT_MIN["inf" if k["kind"] == "inference" else "src"] else "weak"
@@ -430,12 +376,9 @@ def render(sentences: list[dict], missing: str, status: str, conflict: bool = Fa
         out += "\n\nThe sources disagree on this; each claim is cited separately."
     return out + (f"\n\n{missing}" if missing else "")
 
-# ---------------------------------------------------------------- generation
-
 def generate(question: str, retrieval: dict, llm=None, timeout: float | None = None,
              follow_up: bool = False) -> dict:
-    """Generate and validate an answer. Raises models.HeavyBusy if the model is not free within timeout.
-    Must NOT be called while holding models.heavy() for retrieval (retrieval never holds it)."""
+    """Raises models.HeavyBusy if the model is not free within timeout; never call while holding models.heavy()."""
     if not retrieval["sources"]:
         out = validate({"s": [], "insufficient": True}, retrieval)
         return {**out, "timing": {"generate_s": 0.0, "model_load_s": 0.0, "cold": False}, "generated": False}
@@ -469,7 +412,7 @@ def generate(question: str, retrieval: dict, llm=None, timeout: float | None = N
     try:
         data, partial = parse(text, truncated=st.get("finish_reason") == "length")
         out = validate(data, retrieval)
-    except Exception as e:  # noqa: BLE001 — unreadable output must never become an HTTP 500
+    except Exception as e:  # noqa: BLE001
         out = validate({}, retrieval)
         out.update(status="error", error=f"answer format: {type(e).__name__}: {e}",
                    text="The local model's answer could not be read; the retrieved sources are shown below.")
@@ -479,17 +422,13 @@ def generate(question: str, retrieval: dict, llm=None, timeout: float | None = N
                        "peak_memory_gb": st.get("peak_memory_gb")})
     return out
 
-# ---------------------------------------------------------------- Phase 4D orchestration
-
 def deterministic(question: str, retrieval: dict, scope: dict | None = None, graph=None) -> dict | None:
-    """Listing/count questions answered without the model (backend/listing.py), if enabled. On success the turn's
-    sources become the listing evidence (one passage per Reel; the semantic pack is kept as 'pack_sources')."""
     if not DEFAULTS.get("listing"):
         return None
     from . import listing
     try:
         r = listing.answer(question, scope=scope, graph=graph)
-    except Exception:  # noqa: BLE001 — index not ready etc.: fall back to normal generation
+    except Exception:  # noqa: BLE001
         return None
     if r is None:
         return None
@@ -501,11 +440,6 @@ def deterministic(question: str, retrieval: dict, scope: dict | None = None, gra
 
 def respond(question: str, retrieval: dict, llm=None, timeout: float | None = None, follow_up: bool = False,
             scope: dict | None = None, graph=None, allow_deterministic: bool = True) -> dict:
-    """The answer path used by /api/ask and the evaluation: deterministic listing (no model) → otherwise draft
-    generation, then (if enabled) claim verification, bounded repair and multi-part coverage. All model calls of
-    one answer run inside ONE hold of the heavy lock (re-entrant), so a capture session cannot start in between
-    and leave an unverified draft. Model calls per answer (maximum): draft 1 + verify 1 + repair 1 +
-    re-verify 1 = 4; with verify="drop"/"flag": 2."""
     t0 = time.perf_counter()
     det = deterministic(question, retrieval, scope=scope, graph=graph) if allow_deterministic else None
     if det is not None:

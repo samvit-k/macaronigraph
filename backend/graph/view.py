@@ -1,14 +1,4 @@
-"""Read-only graph views for the MacaroniGraph workspace (Phase 5). No writes, no new graph generation.
-
-The workspace never loads the whole graph: it starts from an OVERVIEW (Reels, the "bridge" concepts that several Reels
-mention, and the extracted assertions) and expands one NEIGHBORHOOD at a time. That keeps the canvas usable when the
-collection grows to thousands of Reels.
-
-Vocabulary, kept strictly apart (as in queries.py):
-  mention    a Reel's passage mentions a concept (Reel -> Concept). Co-mention is NOT a relationship.
-  assertion  a model-extracted subject-predicate-object with a verbatim quote; status proposed / corroborated /
-             verified (rejected assertions are never returned here).
-"""
+"""Read-only graph views for the workspace: overview, one-node neighbourhood and search."""
 from __future__ import annotations
 
 from .queries import STATUS_EXPR, resolve
@@ -32,7 +22,6 @@ def _assertions(store: Neo4jStore, where: str = "true", **params) -> list[dict]:
     return store.run(_ASSERTIONS.format(where=where), **params)
 
 def _concept_rows(store: Neo4jStore, keys: list[str]) -> list[dict]:
-    """Concepts by key with their GLOBAL Reel count (how many Reels mention them)."""
     if not keys:
         return []
     return store.run("""
@@ -47,8 +36,6 @@ def _reel_fields() -> str:
 
 def overview(store: Neo4jStore, min_reels: int = 2, limit_concepts: int = 150, reel_offset: int = 0,
              reel_limit: int = 200) -> dict:
-    """Reels (paged, newest first), bridge concepts mentioned by >= min_reels of them, their mention edges, and the
-    non-rejected assertions whose concepts are shown."""
     totals = {
         "reels": store.run("MATCH (r:Reel) RETURN count(r) AS n")[0]["n"],
         "concepts": store.run("MATCH (c:Concept) RETURN count(c) AS n")[0]["n"],
@@ -83,7 +70,6 @@ def overview(store: Neo4jStore, min_reels: int = 2, limit_concepts: int = 150, r
             "note": "Mentions mean a Reel names the concept; two Reels mentioning one concept is not a relationship."}
 
 def neighborhood(store: Neo4jStore, kind: str, node_id: str, limit: int = 200) -> dict:
-    """One node's direct neighborhood with evidence excerpts (for expansion and the inspector)."""
     if kind == "reel":
         reel = store.run(f"MATCH (r:Reel {{reel_id: $rid}}) RETURN {_reel_fields()}, r.hashtags AS hashtags",
                          rid=node_id)
@@ -123,8 +109,6 @@ def neighborhood(store: Neo4jStore, kind: str, node_id: str, limit: int = 200) -
     raise ValueError("kind must be 'reel' or 'concept'")
 
 def search(store: Neo4jStore, q: str, limit: int = 20) -> dict:
-    """Case-insensitive search: concept names/aliases (prefix matches first, then by Reel count) and Reels by
-    owner or caption."""
     q = (q or "").strip()
     if not q:
         return {"query": q, "concepts": [], "reels": []}

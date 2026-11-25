@@ -1,10 +1,5 @@
-// One vocabulary for the canvas, legend, filters and inspector. Cytoscape cannot read CSS variables, so the colours
-// are repeated here (keep in sync with styles/tokens.css).
-//
-// Two kinds of edge are kept strictly apart:
-//  - mention:   a Reel's transcript, caption or on-screen text names a concept. Two Reels mentioning one concept is
-//               co-mention, NEVER a relationship between them.
-//  - assertion: a model-extracted subject–predicate–object with a verbatim quote. Its status is provenance, not truth.
+// Shared vocabulary for canvas, legend, filters and inspector (colours mirror styles/tokens.css).
+// A mention means a Reel names a concept; two Reels mentioning one concept is never a relationship between them.
 
 export const REEL = { label: 'Reel', color: '#7b76e0', help: 'A saved Instagram Reel that has been processed.' }
 
@@ -58,7 +53,6 @@ export const CONTENT_TYPES = {
 export const contentType = (t) => CONTENT_TYPES[t] ?? { label: t || 'Source', note: '' }
 export const isOcr = (t) => typeof t === 'string' && t.startsWith('ocr')
 
-/** "0:33" style timestamp for transcript passages (null for caption / OCR without timing). */
 export function timestamp(start) {
   if (!Number.isFinite(start)) return null
   const s = Math.max(0, Math.floor(start))

@@ -16,7 +16,7 @@ def fix_text(s: str) -> str:
     try:
         return s.encode("latin-1").decode("utf-8")
     except (UnicodeEncodeError, UnicodeDecodeError):
-        return s  # already proper text
+        return s
 
 def reel_id_from_url(url: str) -> str | None:
     m = _ID_RE.search(url or "")
@@ -25,7 +25,6 @@ def reel_id_from_url(url: str) -> str | None:
     return m.group(2) or m.group(3)
 
 def _dict_entries(block: dict) -> list[dict[str, str]]:
-    """[{"dict":[{"label":..,"value":..}],"title":""}, ...] -> [{label: value}, ...]"""
     return [{f["label"]: fix_text(f.get("value", "")) for f in e.get("dict", []) if "label" in f}
             for e in block.get("dict", [])]
 
@@ -53,13 +52,13 @@ def parse_post(item: dict, index: int) -> dict:
             "owner": {"name": owners[0].get("Name"), "username": owners[0].get("Username"),
                       "url": owners[0].get("URL")},
             "brand_partner": blocks.get("Brand partner", []),
-            "raw": copy.deepcopy(item),  # original record, verbatim
+            "raw": copy.deepcopy(item),
         },
     }
 
 def load_posts(path: Path) -> list[dict]:
     with open(path, "r", encoding="utf-8") as f:  # read-only; the export is never modified
         data = json.load(f)
-    if isinstance(data, dict):  # some export versions wrap the list
+    if isinstance(data, dict):
         data = next((v for v in data.values() if isinstance(v, list)), [])
     return [parse_post(item, i) for i, item in enumerate(data)]

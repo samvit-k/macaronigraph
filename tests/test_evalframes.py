@@ -20,7 +20,7 @@ def test_disabled_by_default_writes_nothing(isolated_output):
 
 def test_only_selected_reels_are_saved(isolated_output):
     evalframes.enable(["R1"])
-    assert evalframes.save("R2", "ig-a", FRAMES, 1.0, None) is None          # not selected
+    assert evalframes.save("R2", "ig-a", FRAMES, 1.0, None) is None
     d = evalframes.save("R1", "ig-a", FRAMES, 1.0, {"segments": [{"start": 0, "end": 1, "text": "hi"}], "text": "hi"})
     assert d is not None and len(jpgs()) == 2
     frames, meta = evalframes.load("R1")
@@ -31,7 +31,6 @@ def test_selection_is_capped(isolated_output):
         evalframes.enable([f"R{i}" for i in range(evalframes.MAX_SELECTED + 1)])
     with pytest.raises(ValueError):
         evalframes.enable([])
-    # a hand-edited selection longer than the cap is truncated
     evalframes.eval_dir().mkdir(parents=True)
     (evalframes.eval_dir() / "selection.json").write_text(json.dumps({"reel_ids": [f"R{i}" for i in range(9)]}))
     assert len(evalframes.selection()) == evalframes.MAX_SELECTED
@@ -42,7 +41,7 @@ def test_unsafe_ids_rejected(isolated_output, bad):
         evalframes.enable([bad])
     evalframes.enable(["R1"])
     with pytest.raises(evalframes.UnsafeIdError):
-        evalframes.save("R1", bad, FRAMES, 1.0, None)                        # unsafe session id
+        evalframes.save("R1", bad, FRAMES, 1.0, None)
     with pytest.raises(evalframes.UnsafeIdError):
         evalframes.load(bad)
     assert all(evalframes.eval_dir().resolve() in p.resolve().parents for p in jpgs())
@@ -70,13 +69,13 @@ def _process(client, rid, sid):
 def test_normal_processing_never_stores_frames_but_selected_does(isolated_output):
     client = TestClient(app)
     _process(client, "TESTCLIP01", "test-normal")
-    assert jpgs() == []                                                       # mode off: nothing stored
-    evalframes.enable(["TESTCLIP02"])
-    _process(client, "TESTCLIP01", "test-sel1")                               # not selected
     assert jpgs() == []
-    _process(client, "TESTCLIP02", "test-sel2")                               # selected
+    evalframes.enable(["TESTCLIP02"])
+    _process(client, "TESTCLIP01", "test-sel1")
+    assert jpgs() == []
+    _process(client, "TESTCLIP02", "test-sel2")
     stored = jpgs()
     assert stored and all("TESTCLIP02" in p.parts for p in stored)
     media = [p for ext in ("*.mp4", "*.webm", "*.wav", "*.jpg") for p in config.OUTPUT_DIR.rglob(ext)]
-    assert all(evalframes.eval_dir() in p.parents for p in media)            # no media outside eval dir
-    assert not any(p.suffix in (".mp4", ".webm", ".wav") for p in media)     # frames only, never video/audio
+    assert all(evalframes.eval_dir() in p.parents for p in media)
+    assert not any(p.suffix in (".mp4", ".webm", ".wav") for p in media)

@@ -1,5 +1,4 @@
-"""Local LLM for graph extraction (mlx-lm, Apple Silicon). Loaded lazily, greedy decoding, unloadable.
-No network after the one-time model download; nothing is sent anywhere."""
+"""Local LLM for graph extraction (mlx-lm on Apple Silicon): lazy loading, greedy decoding, unloadable."""
 from __future__ import annotations
 
 import gc
@@ -11,8 +10,8 @@ from .. import config, embedder
 class MlxLLM:
     def __init__(self, model_id: str | None = None):
         self.model_id = model_id or config.GRAPH_LLM
-        self.revision = (config.MODEL_REVISIONS.get(self.model_id)          # explicitly pinned, or
-                         or embedder.resolve_revision(self.model_id))      # the cached snapshot's commit
+        self.revision = (config.MODEL_REVISIONS.get(self.model_id)
+                         or embedder.resolve_revision(self.model_id))
         self._model = self._tok = None
         self._lock = threading.RLock()
         self.load_seconds = 0.0
@@ -30,14 +29,11 @@ class MlxLLM:
             return self._model, self._tok
 
     def generate(self, system: str, user: str, max_tokens: int = 2048) -> tuple[str, dict]:
-        """→ (text, stats{prompt_tokens, generation_tokens, prompt_tps, generation_tps, peak_memory_gb, seconds})"""
         from mlx_lm import stream_generate
         from mlx_lm.sample_utils import make_sampler
 
         with self._lock:
             model, tok = self._load()
-            # enable_thinking=False: hybrid-reasoning Qwen3 checkpoints (e.g. Qwen3-8B) answer directly; templates
-            # without that switch (Qwen3-4B-Instruct-2507) ignore it, so their prompt is unchanged.
             prompt = tok.apply_chat_template([{"role": "system", "content": system}, {"role": "user", "content": user}],
                                              add_generation_prompt=True, tokenize=False, enable_thinking=False)
             t0, parts, last = time.time(), [], None

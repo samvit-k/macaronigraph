@@ -1,4 +1,4 @@
-"""Embedding specs/signatures, lazy thread-safe loading, and the real model with the pinned dependencies."""
+"""Embedding specs and signatures, lazy thread-safe loading, and the real model with pinned dependencies."""
 import threading
 import time
 
@@ -17,7 +17,7 @@ def test_for_spec_preserves_requested_dimension():
     e = embedder.for_spec(spec)
     assert e.dim == 24 and e.encode_docs(["hello world"]).shape == (1, 24)
     assert e.encode_query("hello").shape == (24,)
-    assert embedder.for_spec(spec) is e                                   # cached per signature
+    assert embedder.for_spec(spec) is e
     assert embedder.for_spec(embedder.HashEmbedder(dim=48).spec).dim == 48
 
 def test_chunker_version_is_part_of_the_signature():
@@ -57,19 +57,19 @@ def test_concurrent_first_use_loads_model_once(monkeypatch):
 @pytest.mark.skipif(not embedder.is_cached(config.EMBED_MODEL), reason="embedding model not downloaded")
 def test_real_model_loads_and_encodes_with_pinned_dependencies():
     spec = embedder.current_spec()
-    assert len(spec["revision"]) == 40                                     # resolved HF commit hash
+    assert len(spec["revision"]) == 40
     e = embedder.Embedder(spec)
     docs = e.encode_docs(["Put your project rules in an agents.md file.",
                           "Bake sourdough bread at 230 degrees for 40 minutes."])
     q = e.encode_query("where do I put coding agent instructions?")
     assert docs.shape == (2, e.dim) and q.shape == (e.dim,) and docs.dtype == np.float32
     assert np.allclose(np.linalg.norm(docs, axis=1), 1, atol=1e-3)
-    assert float(docs[0] @ q) > float(docs[1] @ q)                        # semantically sensible
+    assert float(docs[0] @ q) > float(docs[1] @ q)
 
 def test_max_seq_length_never_exceeds_the_models_own_limit(monkeypatch):
     class BertLike:
         def __init__(self, *a, **kw):
-            self.max_seq_length = 512           # BERT-family position limit
+            self.max_seq_length = 512
 
     import sentence_transformers
     monkeypatch.setattr(sentence_transformers, "SentenceTransformer", BertLike)

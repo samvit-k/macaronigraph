@@ -1,16 +1,4 @@
-"""Phase 4B conversation memory — a SEPARATE SQLite file (OUTPUT_DIR/conversations.db), never read by the graph
-sync or the semantic index. Assistant answers are stored here only: they never become graph assertions, index
-entries or extraction cache rows.
-
-Follow-up rewriting uses only (a) the user's earlier questions' concepts and (b) concepts mentioned in the
-passages the previous answer CITED (validated graph mentions) — never the assistant's prose:
-  1. deterministic: if the previous question named exactly one concept, a pronoun ("this", "it", "that") is
-     replaced by its name;
-  2. otherwise the local model rewrites the question, and the rewrite is accepted only if every content word comes
-     from the question or from the allowed referent names;
-  3. otherwise (model busy/deferred/invalid) the question is kept as written and the referents become retrieval
-     hints (boost_concepts).
-"""
+"""Conversation memory in a separate SQLite file, with follow-up rewriting from earlier questions and cited concepts."""
 from __future__ import annotations
 
 import json
@@ -93,8 +81,6 @@ def delete(cid: str) -> bool:
         return con.execute("DELETE FROM conversations WHERE id=?", (cid,)).rowcount == 1
 
 def delete_all() -> int:
-    """Delete every conversation and its turns (the workspace's "Clear all"). Only conversations.db is touched;
-    a queued answer for a deleted turn is dropped by the answer queue (its turn no longer exists)."""
     with tx() as con:
         con.execute("DELETE FROM turns")
         return con.execute("DELETE FROM conversations").rowcount
@@ -121,29 +107,23 @@ def get_turn(tid: int) -> dict | None:
     return _row(r) if r else None
 
 def previous_turns(cid: str, n: int = 2) -> list[dict]:
-    """The last n turns, most recent first."""
     with connect() as con:
         return [_row(r) for r in con.execute(
             "SELECT * FROM turns WHERE conversation_id=? ORDER BY seq DESC LIMIT ?", (cid, n))]
 
 def expire_queued(reason: str = "the backend restarted before this answer was generated") -> int:
-    """Startup: queued generations of a previous process are marked expired (visible), never silently lost."""
+    """Startup: queued generations of a previous process are marked expired, never silently lost."""
     with tx() as con:
         return con.execute("UPDATE turns SET status='expired', error=?, updated_at=? WHERE status='queued'",
                            (reason, db.utc_now())).rowcount
 
-# ---------------------------------------------------------------- follow-ups
-
 def is_followup(question: str) -> bool:
     return bool(_FOLLOWUP.search(question))
 
-# Phase 4C rewrite configuration (selected on dev data).
-BASE_DEFAULTS = {"referents": "v1", "clarify": False}   # clarify: Phase 4D disambiguation (v2 only)
-DEFAULTS = {**BASE_DEFAULTS, "referents": "v2", "clarify": True}   # Phase 4C/4D selection (fixtures/rag_answer_config.json)
+BASE_DEFAULTS = {"referents": "v1", "clarify": False}
+DEFAULTS = {**BASE_DEFAULTS, "referents": "v2", "clarify": True}
 
 def referents(turns: list[dict]) -> list[dict]:
-    """Allowed referents, most relevant first: concepts of the previous questions, then concepts mentioned in the
-    passages the previous answers cited. Never derived from assistant text."""
     out: list[dict] = []
     for t in turns:
         for src, items in (("question", t.get("question_concepts") or []), ("cited", t.get("cited_concepts") or [])):
@@ -169,8 +149,6 @@ Keep the user's wording and intent. Do not add any other names, facts or assumpt
 
 def rewrite(question: str, turns: list[dict], llm=None, allow_model: bool = True,
             timeout: float | None = None) -> dict:
-    """→ {standalone, method: none|substitution|model|fallback, referents, boost, exclude_previous,
-          scope_previous, reason}"""
     t0 = time.perf_counter()
     prev = turns[0] if turns else None
     refs = referents(turns)
@@ -192,7 +170,7 @@ def rewrite(question: str, turns: list[dict], llm=None, allow_model: bool = True
     elif allow_model:
         try:
             out.update(_model_rewrite(question, prev, refs, llm, timeout))
-        except Exception as e:  # noqa: BLE001 — busy model, unreadable output: fall back, never fail
+        except Exception as e:  # noqa: BLE001
             out.update(method="fallback", reason=f"{type(e).__name__}: {e}")
     else:
         out.update(method="fallback", reason="model unavailable (capture/processing active)")
@@ -201,10 +179,7 @@ def rewrite(question: str, turns: list[dict], llm=None, allow_model: bool = True
     out["rewrite_s"] = round(time.perf_counter() - t0, 4)
     return out
 
-# ---------------------------------------------------------------- Phase 4C rewriting (v2)
-# Recent user-named entities are a strong preference, not an absolute rule; concepts that merely appear in cited
-# passages are never substituted; ambiguity is never forced into a substitution — the user's own words are kept and
-# the earlier QUESTIONS (never answers) are added as context for retrieval and for the answer model.
+# Ambiguity is never forced into a substitution: the user's words are kept, with earlier questions (never answers) as context.
 
 _REF = re.compile(r"\b(it|its|this|that|these|those|they|them|their|the two|either|both)\b"
                   r"(?!\s+(?:reel|video|creator|step|part|one)s?\b)", re.I)
@@ -214,26 +189,24 @@ _TOPIC_CHANGE = re.compile(r"\b(switching topics?|change of topic|different (?:t
 
 def _question_referents(turns: list[dict]) -> list[dict]:
     out: list[dict] = []
-    for t in turns:                                              # most recent first
+    for t in turns:
         for c in t.get("question_concepts") or []:
             if c["key"] not in {x["key"] for x in out}:
                 out.append({"key": c["key"], "name": c["name"], "turn": t["seq"]})
     return out
 
 _SINGULAR = re.compile(r"\b(it|its|this|that)\b(?!\s+(?:reel|video|creator|step|part|one)s?\b)", re.I)
-# Comparison/contrast wording means the user is talking about BOTH things named before → no clarification needed.
 _CONTRAST = re.compile(r"\b(?:compare[sd]?|comparison|other|both|versus|vs\.?|differ(?:s|ence|ent)?|between|each)\b", re.I)
 _STEP_REF = re.compile(r"\b(?:that|this|the same)\s+(?:step|part|stage|round|one)\b", re.I)
 
 def _rewrite_v2(question: str, turns: list[dict], out: dict) -> dict:
-    q = _SCOPE_PREVIOUS.sub(" ", question) if out["scope_previous"] else question   # "which of them" → scoping
+    q = _SCOPE_PREVIOUS.sub(" ", question) if out["scope_previous"] else question
     if _TOPIC_CHANGE.search(question):
         return {"method": "none", "reason": "topic change"}
     if _OWN_SUBJECT.search(question):
         return {"method": "none", "reason": "the follow-up names its own subject"}
     clarify = DEFAULTS.get("clarify")
     if clarify and _STEP_REF.search(q):
-        # "that step" / "this part": the user's earlier questions say which step — keep them as context, never guess
         earlier = [t["question"] for t in turns if t.get("question")]
         return {"method": "context", "standalone": f"{question} (Earlier questions in this conversation: "
                 + "; ".join(f'"{x}"' for x in earlier) + ")", "retrieval_query": " ".join([question] + earlier),
@@ -244,8 +217,6 @@ def _rewrite_v2(question: str, turns: list[dict], out: dict) -> dict:
     if clarify and _SINGULAR.search(q) and not _CONTRAST.search(q) and not _REF.sub("", q).strip(" ?") == "":
         last = [c for c in cands if c["turn"] == turns[0]["seq"]]
         if len(last) >= 2:
-            # one singular pronoun, several things named in the immediately previous question, none named now:
-            # ask instead of guessing (Phase 4D). The question is kept as written.
             return {"method": "clarify", "standalone": question, "clarify": [c["name"] for c in last[:4]],
                     "reason": "several possible referents in the previous question"}
     if len(cands) == 1 and _PRONOUN.search(q):

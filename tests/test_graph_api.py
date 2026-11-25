@@ -1,4 +1,4 @@
-"""Graph API with Neo4j unavailable: graph endpoints report 503 / offline; the rest of the backend is unaffected."""
+"""Graph API with Neo4j unavailable: graph endpoints report 503 and the rest of the backend is unaffected."""
 
 import pytest
 from fastapi.testclient import TestClient
@@ -8,7 +8,7 @@ from backend.app import app
 from helpers import free_port, production_path_guard
 from test_indexer import add
 
-client = TestClient(app)   # no lifespan: background threads are not started
+client = TestClient(app)
 
 @pytest.fixture(autouse=True)
 def offline(isolated_output, monkeypatch):
@@ -39,7 +39,7 @@ def test_status_reports_offline_and_backend_keeps_working(monkeypatch):
 
 def test_manual_sync_while_offline_does_not_fail_and_needs_no_llm_when_deferred(monkeypatch):
     add("A", "Triton is built on top of CUDA")
-    jobs.create_session("instagram-live", "instagram", 0)          # capture active → extraction deferred
+    jobs.create_session("instagram-live", "instagram", 0)
     from backend.graph import sync as gs
     monkeypatch.setattr(gs, "extractor_version", lambda model_id=None: "x-test")
     r = client.post("/api/graph/sync", params={"wait": 1}).json()

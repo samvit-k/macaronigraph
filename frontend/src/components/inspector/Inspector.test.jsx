@@ -1,3 +1,4 @@
+// Inspector views for Reels, concepts, mentions, assertions and citations.
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { emptyModel, mergeOverview } from '../../graph/toElements.js'

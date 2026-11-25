@@ -1,6 +1,4 @@
-// Right-hand panel for asking the saved Reels (layout from SanD Hacks' AssistantPanel; no uploads — knowledge comes
-// only from Reels captured by the extension). Conversation history, new conversation, delete, follow-ups,
-// clarifications, queued answers and errors.
+// Assistant panel: conversation history, composer and the exchanges of the open conversation.
 import { useEffect, useRef, useState } from 'react'
 import ConfirmDialog from '../ConfirmDialog.jsx'
 import ChatMessage from './ChatMessage.jsx'
@@ -56,7 +54,7 @@ function History({ chat, onClose, onClearAll }) {
 
 export default function AssistantPanel({ open, onClose, chat, draft, setDraft, focusTick, onCite, onHighlight, activeTurn, graphReady = true }) {
   const [showHistory, setShowHistory] = useState(false)
-  // Exchanges the user minimized (view state only), keyed by turn id.
+
   const [collapsed, setCollapsed] = useState(() => new Set())
   const toggle = (id) => setCollapsed((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n })
   const [confirmDelete, setConfirmDelete] = useState(false)

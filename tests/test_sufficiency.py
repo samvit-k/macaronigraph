@@ -1,4 +1,4 @@
-"""Phase 4C experimental evidence-sufficiency signals (backend/sufficiency.py) and their use in answer.generate."""
+"""Evidence-sufficiency signals and their use in answer generation."""
 import pytest
 
 from backend import answer, sufficiency as sf
@@ -45,7 +45,6 @@ def test_soft_mode_warns_the_model_about_missing_terms_but_never_decides_itself(
     assert out["status"] == "ok"
 
 def test_a_supported_negative_answer_is_kept_as_an_answer(monkeypatch):
-    # "the Reel says you do NOT need X" is evidence, not an abstention — no rule turns it into one
     monkeypatch.setitem(answer.DEFAULTS, "sufficiency", "soft")
     p = pack(0.8, "You do not need to master shader math to become a game designer.")
     out, _ = ask({"s": [{"t": "The Reel says you do not need to master shader math.", "c": ["S1"], "k": "src"}]},
@@ -63,12 +62,11 @@ def test_hard_sim_anchor_needs_both_low_similarity_and_a_missing_term():
     high_missing = {"best_sim": 0.70, "missing": ["lru"], "missing_words": ["lru"], "coverage": 0.75}
     assert sf.decide("hard_sim_anchor", low_missing, 0.55) and "tire" in sf.decide(
         "hard_sim_anchor", low_missing, 0.55)
-    assert sf.decide("hard_sim_anchor", low_covered, 0.55) is None      # entity lookup via graph/lexical
+    assert sf.decide("hard_sim_anchor", low_covered, 0.55) is None
     assert sf.decide("hard_sim_anchor", high_missing, 0.55) is None
     assert sf.decide("hard_sim_anchor", {**low_missing, "best_sim": None}, 0.55) is None
 
 def test_hard_gates_never_apply_to_follow_up_turns(monkeypatch):
-    # A follow-up ("Which of the two …?") has signals computed on context-dependent text: it is always generated.
     from test_answer import Scripted
     import json
     monkeypatch.setitem(answer.DEFAULTS, "sufficiency", "hard_sim_anchor")

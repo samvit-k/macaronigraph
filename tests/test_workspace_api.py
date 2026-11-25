@@ -1,5 +1,4 @@
-"""Phase 5 additive backend surface: welcome page, extension download (explicit allowlist), workspace mount,
-graph-view routes when Neo4j is offline, and the additive `cited_concepts` field. The legacy /app/ page keeps working."""
+"""Workspace backend surface: welcome page, extension download allowlist, workspace mount and redirects."""
 import io
 import zipfile
 
@@ -18,7 +17,7 @@ def test_extension_zip_contains_exactly_the_allowlist():
     assert "macaronigraph-extension.zip" in r.headers["content-disposition"]
     names = zipfile.ZipFile(io.BytesIO(r.content)).namelist()
     assert names == [f"macaronigraph-extension/{f}" for f in app_mod.EXTENSION_FILES]
-    for n in names:                                       # nothing secret, local or developmental can be included
+    for n in names:
         base = n.rsplit("/", 1)[-1]
         assert not base.startswith(".") and base not in ("manifest.previous.json", "manifest.next.json")
         assert not base.endswith((".env", ".local", ".key", ".pem", ".db", ".jsonl", ".log"))
@@ -70,7 +69,7 @@ def test_response_carries_cited_concepts_additively():
          "cited_concepts": [{"key": "cuda", "name": "CUDA", "type": "technology"}]}
     r = ask.response(t)
     assert r["cited_concepts"] == [{"key": "cuda", "name": "CUDA"}]
-    assert {"citations", "sources", "answer", "status", "turn_id"} <= set(r)       # existing contract unchanged
+    assert {"citations", "sources", "answer", "status", "turn_id"} <= set(r)
 
 def test_clear_all_conversations_endpoint(isolated_output):
     from backend import conversations as cv

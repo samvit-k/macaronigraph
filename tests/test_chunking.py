@@ -1,4 +1,4 @@
-"""Phase 3 chunking: transcript windows, OCR screen grouping, speech-echo suppression, fragments, provenance."""
+"""Chunking: transcript windows, OCR screen grouping, speech-echo suppression, fragments and provenance."""
 import copy
 import json
 
@@ -28,15 +28,13 @@ def by_type(chunks, t):
 def ids_of(c):
     return json.loads(c["metadata"]["passage_ids"])
 
-# ---------------------------------------------------------------- transcript
-
 def test_transcript_windows_overlap_and_timestamps():
     sentence = "this sentence has exactly ten words in it for testing."
-    tr = [seg(i * 4.0, i * 4.0 + 4.0, sentence) for i in range(14)]  # 140 words
+    tr = [seg(i * 4.0, i * 4.0 + 4.0, sentence) for i in range(14)]
     chunks = by_type(chunking.build_chunks(make_record(tr), "instagram"), "transcript")
     assert len(chunks) >= 2
     for a, b in zip(chunks, chunks[1:]):
-        assert ids_of(a)[-1] == ids_of(b)[0]                      # one-segment overlap
+        assert ids_of(a)[-1] == ids_of(b)[0]
         assert a["metadata"]["start"] < b["metadata"]["start"]
     assert chunks[0]["metadata"]["start"] == 0.0
     assert chunks[-1]["metadata"]["end"] == 56.0
@@ -48,19 +46,16 @@ def test_short_transcript_is_one_chunk_and_low_conf_flagged():
     assert c["text"] == "Hello there. uh maybe"
     assert c["metadata"]["has_low_conf"] is True
 
-# ---------------------------------------------------------------- OCR screens
-
 def test_list_screen_keeps_lines_in_reading_order_with_newlines():
     ocr = [oseg(5, 8, "3. Deploy", y=0.6), oseg(5, 8, "1. Install uv", y=0.2), oseg(5, 8, "2. Run pytest", y=0.4)]
     (c,) = by_type(chunking.build_chunks(make_record([], ocr), "instagram"), "ocr")
     assert c["text"] == "1. Install uv\n2. Run pytest\n3. Deploy"
 
-# --- regression: lines of one screen first detected on slightly different frames keep reading order
 def test_reading_order_survives_slightly_different_detection_times():
-    ocr = [oseg(5.6, 8, "1. Install uv", y=0.2),      # detected last, but it is the top line
+    ocr = [oseg(5.6, 8, "1. Install uv", y=0.2),
            oseg(5.3, 8, "2. Run pytest", y=0.4),
            oseg(5.45, 8, "3. Deploy", y=0.6),
-           oseg(7.0, 9, "Next: monitoring", y=0.2)]   # a later moment of the same screen group
+           oseg(7.0, 9, "Next: monitoring", y=0.2)]
     (c,) = by_type(chunking.build_chunks(make_record([], ocr), "instagram"), "ocr")
     assert c["text"] == "1. Install uv\n2. Run pytest\n3. Deploy\nNext: monitoring"
 
@@ -90,7 +85,6 @@ def test_no_speech_reel_keeps_all_ocr():
     chunks = chunking.build_chunks(make_record(None, ocr, status="ok_no_speech"), "instagram")
     assert by_type(chunks, "ocr")[0]["text"] == "home cooks keep"
 
-# --- regression: echo suppression requires reliable transcript coverage AT THAT TIME
 def test_echo_not_dropped_when_matching_speech_is_low_confidence():
     tr = [seg(0, 3, "intro words here"), seg(20, 23, "use the agents md file", conf="low")]
     ocr = [oseg(21, 22, "use the agents md file", kind="subtitle", echo="speech_echo")]
@@ -98,17 +92,15 @@ def test_echo_not_dropped_when_matching_speech_is_low_confidence():
     assert not plan["dropped_echo"] and len(plan["screen"]) == 1
 
 def test_echo_not_dropped_when_confident_speech_is_elsewhere_in_the_reel():
-    tr = [seg(0, 3, "use the agents md file")]                    # confident, but 25 s away
+    tr = [seg(0, 3, "use the agents md file")]
     ocr = [oseg(28, 29, "use the agents md file", kind="subtitle", echo="speech_echo")]
     plan = chunking.ocr_plan(make_record(tr, ocr, duration=40))
     assert not plan["dropped_echo"] and len(plan["screen"]) == 1
 
 def test_echo_not_dropped_when_nearby_confident_speech_says_something_else():
     tr = [seg(5, 8, "completely unrelated narration")]
-    ocr = [oseg(6, 7, "pip install chromadb", kind="subtitle", echo="speech_echo")]  # stale/wrong label
+    ocr = [oseg(6, 7, "pip install chromadb", kind="subtitle", echo="speech_echo")]
     assert not chunking.ocr_plan(make_record(tr, ocr))["dropped_echo"]
-
-# ---------------------------------------------------------------- fragments
 
 def test_fragments_get_their_own_identifiable_chunks():
     ocr = [oseg(3, 4, "Install the CLI"), oseg(3, 4, "aN", quality="fragment", y=0.8)]
@@ -118,7 +110,6 @@ def test_fragments_get_their_own_identifiable_chunks():
     assert s["text"] == "Install the CLI" and f["text"] == "aN"
     assert f["metadata"]["ocr_quality"] == "fragment" and "fragment" not in s["metadata"]["ocr_quality"]
 
-# --- regression: persistent uncertain OCR must not become a (full-weight) title
 def test_persistent_fragment_stays_a_fragment_not_a_title():
     ocr = [oseg(0, 28, "Clauud Codee", quality="fragment"), oseg(0, 28, "Real Title Here")]
     chunks = chunking.build_chunks(make_record([], ocr), "instagram")
@@ -127,14 +118,10 @@ def test_persistent_fragment_stays_a_fragment_not_a_title():
     assert t["text"] == "Real Title Here" and t["metadata"]["ocr_quality"] == "normal"
     assert f["text"] == "Clauud Codee"
     assert f["metadata"]["ocr_quality"] == "fragment" and f["metadata"]["persistent"] is True
-    # the long-lived fragment must not glue unrelated transient fragments into one giant chunk
     ocr += [oseg(2, 3, "xQ", quality="fragment"), oseg(20, 21, "zz", quality="fragment")]
     frags = by_type(chunking.build_chunks(make_record([], ocr), "instagram"), "ocr_fragment")
     assert sorted(c["text"] for c in frags) == ["Clauud Codee", "xQ", "zz"]
 
-# ---------------------------------------------------------------- provenance
-
-# --- regression: a repeated line is shown once but keeps every passage id and timestamp
 def test_repeated_lines_keep_all_provenance():
     ocr = [oseg(1, 2, "Step 1: plan"), oseg(1, 2, "Step 2: build", y=0.6), oseg(2.5, 3.5, "Step 1: plan")]
     rec = make_record([], ocr)
@@ -168,10 +155,7 @@ def test_every_kept_passage_is_accounted_for():
     all_ocr = {p["chunk_id"] for p in rec["passages"] if p["source_type"] == "ocr"}
     assert in_chunks | dropped == all_ocr and not (in_chunks & dropped)
 
-# ---------------------------------------------------------------- legacy / determinism
-
 def _legacy(rec):
-    """Strip the OCR v2 labels, as in a Phase-1 record."""
     for s in rec["ocr"]["segments"]:
         for k in ("echo", "quality", "kind"):
             s.pop(k)
@@ -182,13 +166,13 @@ def _legacy(rec):
 
 def test_legacy_record_without_echo_labels_gets_them_in_memory():
     tr = [seg(0, 3, "home cooks keep repeating the word mise")]
-    ocr = [oseg(0, 1, "home cooks keep"),             # spoken confidently at that time
-           oseg(0, 1, "Ready in twenty minutes", y=0.1)]          # independent on-screen text
+    ocr = [oseg(0, 1, "home cooks keep"),
+           oseg(0, 1, "Ready in twenty minutes", y=0.1)]
     rec = _legacy(make_record(tr, ocr))
     before = copy.deepcopy(rec)
     plan = chunking.ocr_plan(rec)
-    assert rec == before                                        # record never modified
-    (dropped,) = plan["dropped_echo"]                           # short-lived + confidently spoken → dropped
+    assert rec == before
+    (dropped,) = plan["dropped_echo"]
     assert dropped["text"] == "home cooks keep" and dropped["echo"] == "speech_echo"
     (kept,) = plan["screen"]
     assert kept["text"] == "Ready in twenty minutes" and kept["echo"] == "on_screen"

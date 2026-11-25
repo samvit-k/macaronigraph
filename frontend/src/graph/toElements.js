@@ -1,5 +1,4 @@
-// Graph model for the workspace: a merge of the server's overview and of every neighbourhood the user expanded.
-// Nothing here invents structure: every node and edge comes from /api/graph/* responses.
+// Graph model: merges the overview and expanded neighbourhoods into Cytoscape elements; nothing is invented.
 import { ASSERTION_STATUSES, CONCEPT_ORDER } from './vocab.js'
 
 export const reelId = (rid) => `reel:${rid}`
@@ -11,8 +10,6 @@ export function emptyModel() {
   return { reels: {}, concepts: {}, mentions: {}, assertions: {}, expanded: {}, totals: null, labels: {}, nextLabel: 1 }
 }
 
-/** Every node is labelled "Node N"; details appear only in the inspector. A number, once given, stays with the
- *  node for the whole session (also after collapsing or returning to the overview). */
 function assignLabels(model, ids) {
   const labels = { ...model.labels }
   let n = model.nextLabel ?? 1
@@ -26,7 +23,6 @@ function addConcept(model, c, extra = {}) {
   model.concepts[c.key] = { ...prev, ...c, ...extra, bridge: prev.bridge || c.bridge || (c.n_reels ?? 0) >= 2 }
 }
 
-/** Merge a /api/graph/overview payload (replaces totals; keeps anything expanded earlier). */
 export function mergeOverview(model, data) {
   const next = { ...model, reels: { ...model.reels }, concepts: { ...model.concepts }, mentions: { ...model.mentions },
     assertions: { ...model.assertions } }
@@ -38,7 +34,6 @@ export function mergeOverview(model, data) {
   return assignLabels(next, [...(data.reels ?? []).map((r) => reelId(r.reel_id)), ...(data.concepts ?? []).map((c) => conceptId(c.key))])
 }
 
-/** Merge a /api/graph/neighborhood payload and mark that node expanded. */
 export function mergeNeighborhood(model, data) {
   const next = { ...model, reels: { ...model.reels }, concepts: { ...model.concepts }, mentions: { ...model.mentions },
     assertions: { ...model.assertions }, expanded: { ...model.expanded } }
@@ -60,7 +55,6 @@ export function mergeNeighborhood(model, data) {
   return assignLabels(next, ids)
 }
 
-/** Remove what an expansion added, unless the overview or another expansion still needs it. */
 export function collapse(model, nodeId, overview) {
   const added = model.expanded[nodeId]
   if (!added) return model
@@ -92,7 +86,6 @@ export function collapse(model, nodeId, overview) {
 
 const conceptSize = (n) => Math.round(Math.min(34, 9 + 5 * Math.sqrt(Math.max(1, n ?? 1))))
 
-/** Cytoscape elements for the current model. */
 export function buildElements(model) {
   const nodes = []
   const edges = []
@@ -128,7 +121,6 @@ export const DEFAULT_FILTERS = {
   bridgeOnly: false,
 }
 
-/** Element ids hidden by the filters (concept types, edge kinds, bridge-only). */
 export function hiddenIds(model, filters = DEFAULT_FILTERS) {
   const hidden = new Set()
   for (const c of Object.values(model.concepts)) {
@@ -149,7 +141,6 @@ export function hiddenIds(model, filters = DEFAULT_FILTERS) {
   return hidden
 }
 
-/** How many loaded items each filter row controls. */
 export function filterCounts(model) {
   const types = {}
   for (const c of Object.values(model.concepts)) types[c.type ?? 'concept'] = (types[c.type ?? 'concept'] ?? 0) + 1
@@ -158,7 +149,6 @@ export function filterCounts(model) {
   return { types, edges, single: Object.values(model.concepts).filter((c) => !c.bridge).length }
 }
 
-/** Ids of loaded nodes that match a free-text query (used to dim the rest while typing). */
 export function matchingIds(model, query) {
   const q = (query ?? '').trim().toLowerCase()
   if (!q) return null
@@ -172,7 +162,6 @@ export function matchingIds(model, query) {
   return out
 }
 
-/** Graph element ids to highlight for an answer: its cited Reels and the concepts of its cited passages. */
 export function answerHighlight(turn) {
   if (!turn) return {}
   const out = {}

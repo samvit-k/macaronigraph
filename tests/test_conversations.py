@@ -1,5 +1,4 @@
-"""Conversation memory (backend/conversations.py): separate storage, follow-up rewriting rules, referents only from
-questions and cited passages (never assistant text), fallbacks."""
+"""Conversation memory: separate storage, follow-up rewriting rules and referents from questions only."""
 import json
 import sqlite3
 
@@ -14,8 +13,6 @@ def iso(isolated_output):
 
 @pytest.fixture
 def v1(monkeypatch):
-    # The Phase 4B rewrite path (model rewrite with a fallback) stays available as referents="v1"; the default is v2,
-    # which never calls the model.
     monkeypatch.setitem(cv.DEFAULTS, "referents", "v1")
 
 def turn(cid, q, q_concepts=(), cited=(), cited_reels=(), answer_text="", status="ok"):
@@ -33,8 +30,6 @@ class RewriteLLM:
         self.calls += 1
         assert models.held_by_me() and models.holder()["purpose"] == "follow-up rewriting"
         return json.dumps({"q": self.q}), {"finish_reason": "stop"}
-
-# ---------------------------------------------------------------- storage
 
 def test_conversations_live_in_their_own_database_file():
     assert cv.db_path() != jobs.db_path() and cv.db_path().name == "conversations.db"
@@ -56,8 +51,6 @@ def test_roundtrip_delete_and_expiry():
     con = sqlite3.connect(cv.db_path())
     assert con.execute("SELECT COUNT(*) FROM turns").fetchone()[0] == 0
 
-# ---------------------------------------------------------------- rewriting
-
 def test_single_referent_pronoun_is_substituted_without_the_model():
     cid = cv.create()
     turn(cid, "What does the pastry chef roadmap say about CUDA?", q_concepts=["CUDA"])
@@ -74,7 +67,7 @@ def test_model_rewrite_is_accepted_only_with_question_and_referent_words(v1):
     rw = cv.rewrite("How does that compare with the other architecture for gaming?", cv.previous_turns(cid), llm=bad)
     assert rw["method"] == "fallback" and "kubernetes" in rw["reason"]
     assert rw["standalone"] == "How does that compare with the other architecture for gaming?"
-    assert rw["boost"] == ["arm", "x86"]                                           # referents become hints
+    assert rw["boost"] == ["arm", "x86"]
 
 def test_referents_come_from_questions_and_cited_passages_never_assistant_text():
     cid = cv.create()
@@ -110,8 +103,6 @@ def test_other_reels_and_which_of_them_scopes():
     rw = cv.rewrite("Which of them shows how to make Wi-Fi faster?", cv.previous_turns(cid))
     assert rw["scope_previous"] and not rw["exclude_previous"]
 
-# ---------------------------------------------------------------- Phase 4C rewriting (v2)
-
 @pytest.fixture
 def v2(monkeypatch):
     monkeypatch.setitem(cv.DEFAULTS, "referents", "v2")
@@ -125,12 +116,11 @@ def test_v2_pronoun_with_one_entity_named_by_the_user_is_substituted(v2):
 def test_v2_entity_named_two_turns_back_still_resolves(v2):
     cid = cv.create()
     turn(cid, "What is Firstmate?", q_concepts=["Firstmate"])
-    turn(cid, "What did the creator do when the plan ran low?")              # names no entity
+    turn(cid, "What did the creator do when the plan ran low?")
     rw = cv.rewrite("Is it free?", cv.previous_turns(cid, 3))
     assert rw["method"] == "substitution" and rw["standalone"] == "Is Firstmate free?"
 
 def test_v2_incidental_cited_resources_never_override_the_subject(v2):
-    # Phase 4B pattern: the question named no entity; the cited passage listed resources → "it" became the resources
     cid = cv.create()
     turn(cid, "What does the pastry chef roadmap say I should learn?", q_concepts=[],
          cited=["CUDA Programming Guide", "CUTLASS", "CuTe DSL"])
@@ -140,7 +130,7 @@ def test_v2_incidental_cited_resources_never_override_the_subject(v2):
     assert "pastry chef roadmap" in rw["retrieval_query"] and rw["boost"] == []
 
 def test_v2_several_possible_referents_are_not_forced_into_a_substitution(v2, monkeypatch):
-    monkeypatch.setitem(cv.DEFAULTS, "clarify", False)          # Phase 4C behaviour; clarify is tested below
+    monkeypatch.setitem(cv.DEFAULTS, "clarify", False)
     cid = cv.create()
     turn(cid, "What is Firstmate?", q_concepts=["Firstmate"])
     turn(cid, "What happened when Claude ran low and they moved to Codex?", q_concepts=["Claude", "Codex"])
@@ -185,8 +175,6 @@ def test_v2_never_uses_assistant_text_as_context(v2):
     rw = cv.rewrite("What are the prerequisites for it?", cv.previous_turns(cid, 3))
     assert "UNIQUE-ANSWER" not in rw["standalone"] + rw.get("retrieval_query", "")
 
-# ---------------------------------------------------------------- Phase 4D disambiguation (clarify)
-
 @pytest.fixture
 def clar(monkeypatch):
     monkeypatch.setitem(cv.DEFAULTS, "referents", "v2")
@@ -202,7 +190,7 @@ def test_singular_pronoun_after_two_named_things_asks_instead_of_guessing(clar):
 def test_clarify_is_off_by_default_and_plural_or_single_references_are_unchanged(monkeypatch, clar):
     cid = cv.create()
     turn(cid, "What are Quillmark and Paperhawk used for?", q_concepts=["Quillmark", "Paperhawk"])
-    assert cv.rewrite("Are they free?", cv.previous_turns(cid, 3))["method"] == "context"       # plural: both
+    assert cv.rewrite("Are they free?", cv.previous_turns(cid, 3))["method"] == "context"
     one = cv.create()
     turn(one, "What does my Reel say about Firstmate?", q_concepts=["Firstmate"])
     assert cv.rewrite("Is it free?", cv.previous_turns(one, 3))["standalone"] == "Is Firstmate free?"

@@ -1,20 +1,4 @@
-"""Phase 4D deterministic listings: "Which Reels mention X?", "How many Reels mention X?", "Which of them also
-mention X?", "Which other Reels mention X?" — answered WITHOUT the language model, from an exhaustive literal
-search of the active semantic index.
-
-What counts as a match (a literal mention, never a semantic relationship):
-  - a case-insensitive, word-boundary match of the term or one of its aliases in a passage's text;
-  - aliases are: spacing/hyphen variants of the term ("leet code" / "leetcode"), and, when the knowledge graph is
-    reachable, the canonical name and curated aliases of the ONE graph concept the term links to. Nothing fuzzy;
-  - only passages of the ACTIVE collection, of Instagram Reels, whose stored content hash equals the index state's
-    hash for a Reel whose index row is current for its canonical attempt (stale or partial Reels are skipped and
-    counted);
-  - every listed Reel is cited with the passage that contains the mention, and the evidence type is kept apart:
-    spoken transcript or caption vs on-screen text (OCR, which can be misread).
-The answer states how many Reels were searched (processed and indexed) and how many saved items are not processed
-yet — it never claims to cover all saved Reels. Questions with any further constraint ("…and in what context",
-"…talk about", "…recommend") are not handled here (→ normal generation).
-"""
+"""Deterministic listing and count answers ("Which Reels mention X?") by exact search, without the model."""
 from __future__ import annotations
 
 import re
@@ -39,7 +23,6 @@ TYPE_LABEL = {"transcript": "transcript", "caption": "caption"}
 MAX_TERM_WORDS = 5
 
 def detect(question: str) -> dict | None:
-    """→ {kind: list|count|within, other: bool, term: str|None (None = pronoun, resolve from context)} or None."""
     q = " ".join((question or "").split())
     for kind, pat in _PATTERNS:
         m = pat.match(q)
@@ -54,7 +37,7 @@ def detect(question: str) -> dict | None:
     return None
 
 def _variants(term: str) -> set[str]:
-    camel = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", term)            # "LeetCode" → "Leet Code", "GitHub" → "Git Hub"
+    camel = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", term)
     if camel != term:
         return _variants(camel.lower()) | _variants(term.lower())
     t = " ".join(term.lower().split())
@@ -64,8 +47,6 @@ def _variants(term: str) -> set[str]:
     return {v for v in out if v}
 
 def aliases(term: str, graph=None) -> tuple[list[str], str | None]:
-    """Surface forms to search for. → (forms, note). Graph aliases only when the term links to exactly one concept
-    covering the whole term."""
     forms = set(_variants(term))
     note = None
     try:
@@ -79,7 +60,7 @@ def aliases(term: str, graph=None) -> tuple[list[str], str | None]:
             for s in [c["name"], *(c.get("aliases") or [])]:
                 if s and len(s) >= 2:
                     forms |= _variants(s)
-    except Exception as e:  # noqa: BLE001 — graph offline: literal forms of the term only
+    except Exception as e:  # noqa: BLE001
         note = f"graph aliases unavailable ({type(e).__name__})"
     return sorted(forms, key=lambda f: (-len(f), f)), note
 
@@ -92,8 +73,6 @@ def _corpus_counts() -> dict:
     return {r[0]: r[1] for r in rows}
 
 def search(forms: list[str]) -> dict:
-    """Exhaustive literal search of the active collection (read-only). → {matches: {reel_id: [hit]}, searched,
-    passages, skipped_stale, collection}"""
     pat = _pattern(forms)
     with indexer.reading() as name:
         if not name:
@@ -135,9 +114,6 @@ def _snippet(hit: dict, width: int = 70) -> str:
     return ("…" if s else "") + " ".join(t[s:e].split()) + ("…" if e < len(t) else "")
 
 def answer(question: str, scope: dict | None = None, graph=None) -> tuple[dict, list[dict]] | None:
-    """Deterministic answer for a listing/count question, or None if the question is not one (or the term cannot be
-    resolved). → (answer object in the answer.validate shape, sources [S1..Sn] = one evidence passage per Reel).
-    scope: {"within": [reel ids]} (which of them …), {"exclude": [...]} (which other …), "previous_term": str."""
     d = detect(question)
     scope = scope or {}
     if not d:
@@ -149,7 +125,7 @@ def answer(question: str, scope: dict | None = None, graph=None) -> tuple[dict, 
     res = search(forms)
     within = set(scope.get("within") or []) if d["kind"] == "within" else None
     if d["kind"] == "within" and not within:
-        return None                                  # "which of them" without a previous answer: not deterministic
+        return None
     exclude = set(scope.get("exclude") or []) if d["other"] else set()
     reels = [r for r in res["matches"] if (within is None or r in within) and r not in exclude]
     best = {r: sorted(res["matches"][r], key=_rank)[0] for r in reels}

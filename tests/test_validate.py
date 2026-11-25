@@ -1,3 +1,4 @@
+"""scripts/validate.py checks against generated ground truth."""
 import sys
 from pathlib import Path
 
@@ -18,7 +19,7 @@ def rec(rid, status, audio_class, text="", ocr=("HI THERE",), sid="test-1"):
 GOOD_A = rec("A", "ok", "speech", "hello world")
 
 def test_complete_subset_passes():
-    _, fails = validate("test-1", [GOOD_A], TRUTH, ["A"])  # intentional 1-of-3 subset
+    _, fails = validate("test-1", [GOOD_A], TRUTH, ["A"])
     assert fails == []
 
 def test_empty_session_fails():

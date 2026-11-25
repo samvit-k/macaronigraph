@@ -15,8 +15,7 @@ def free_port() -> int:
 
 @contextmanager
 def production_path_guard(isolated_output):
-    """Installed outside monkeypatch so a rollback cannot remove it: any database or Chroma path outside the
-    temporary OUTPUT_DIR fails the test instead of touching production data."""
+    """Installed outside monkeypatch so a rollback cannot remove it."""
     real_db, real_chroma = jobs.db_path, config.chroma_dir
 
     def guarded(fn):
@@ -43,7 +42,6 @@ def canonical_digest() -> str:
 
 @contextmanager
 def heavy_lock_held(label: str = "graph extraction"):
-    """Another thread holds the heavy-work lock for the duration of the block."""
     entered, release = threading.Event(), threading.Event()
 
     def hold():

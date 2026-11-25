@@ -1,7 +1,4 @@
-"""Phase 4D deterministic listings (backend/listing.py) over a real temporary Chroma index: detection, exact
-mention matching with aliases, deduplication per Reel, evidence types (spoken/caption vs on-screen text), citation
-provenance, previous-Reel scoping, content-hash validation, dynamic corpus size, and the /api/ask integration
-(answered without the model, also while capture is active)."""
+"""Deterministic listings over a real temporary Chroma index: detection, exact matching and scope."""
 
 import pytest
 
@@ -26,7 +23,7 @@ def idx(isolated_output, monkeypatch):
     add("B", "Triton is built on top of CUDA for kernels")
     add("C", "sourdough bread starter recipe", ocr=[oseg(1, 2, "Made with CUDA on screen only")])
     add("D", "leet code problems for interviews")
-    add("E", "a cudamalloc is not a mention")          # word boundary: no match for CUDA
+    add("E", "a cudamalloc is not a mention")
     indexer.sync_all()
     yield
     indexer.release_writer()
@@ -55,7 +52,7 @@ def test_lists_every_literal_match_once_with_evidence_type_and_citations(idx):
     out, sources = listing.answer("Which Reels mention CUDA?", graph=FakeGraph())
     det = out["deterministic"]
     assert det["reels"] == ["A", "B", "C"] and det["ocr_only"] == ["C"] and "E" not in det["reels"]
-    assert len(sources) == 3 and len({s["reel_id"] for s in sources}) == 3            # one passage per Reel
+    assert len(sources) == 3 and len({s["reel_id"] for s in sources}) == 3
     for s, c in zip(sources, out["citations"]):
         assert "cuda" in s["text"].lower() and c["chunk_id"] == s["chunk_id"] and c["sid"] == s["sid"]
     assert [x for x in out["sentences"] if x["citations"]][-1]["text"].count("on-screen text") == 1
@@ -68,7 +65,7 @@ def test_counts_report_the_spoken_and_on_screen_split(idx):
 
 def test_spacing_variants_match_and_zero_matches_are_stated(idx):
     out, _ = listing.answer("Which Reels mention LeetCode?", graph=FakeGraph())
-    assert out["deterministic"]["reels"] == ["D"]                                   # "leet code"
+    assert out["deterministic"]["reels"] == ["D"]
     out, sources = listing.answer("Which Reels mention Kubernetes?", graph=FakeGraph())
     assert not sources and out["sentences"][0]["text"].startswith("None of the 5 processed Reels mention")
 
@@ -96,7 +93,7 @@ def test_graph_offline_still_answers_with_the_exact_wording(idx):
 
 def test_api_answers_listings_without_the_model_even_while_capture_is_active(idx, monkeypatch):
     monkeypatch.setattr(models, "shared_llm", lambda *a: NoModel())
-    jobs.create_session("instagram-live", "instagram", 0)                      # capture active
+    jobs.create_session("instagram-live", "instagram", 0)
     r = ask.ask("Which Reels mention CUDA?", graph=FakeGraph(), llm=NoModel())
     assert r["status"] == "ok" and {c["reel_id"] for c in r["citations"]} == {"A", "B", "C"}
     assert all(any(s["chunk_id"] == c["chunk_id"] for s in r["sources"]) for c in r["citations"])

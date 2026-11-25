@@ -1,12 +1,4 @@
-"""Audio → 16 kHz mono PCM (ffmpeg) → silence check → MLX-Whisper → per-segment confidence tiers.
-
-A successful Whisper call is NOT proof of speech. Each segment is graded with Whisper's own signals:
-  confident  – kept in `text`
-  uncertain  – kept in `segments` with confidence="low" + flags (never silently dropped)
-  rejected   – only clear non-content: empty/symbol-only output, repetition loops, or Whisper's
-               combined silence rule (high no_speech_prob AND low avg_logprob). Listed in `rejected_segments`.
-audio_class: silent | non_speech (audible, no confident segment) | speech | missing | unknown (whisper error)
-"""
+"""Audio to 16 kHz mono PCM (ffmpeg), silence check, MLX-Whisper, per-segment confidence tiers."""
 from __future__ import annotations
 
 import re
@@ -19,28 +11,24 @@ import numpy as np
 from . import config
 
 SR = 16000
-SILENT_PEAK_DB = -50.0       # below this the capture carried no meaningful audio
-NO_SPEECH_PROB_MAX = 0.6     # Whisper's defaults
+SILENT_PEAK_DB = -50.0
+NO_SPEECH_PROB_MAX = 0.6
 AVG_LOGPROB_MIN = -1.0
 COMPRESSION_RATIO_MAX = 2.4
-# Phrases Whisper characteristically emits on music/silence. They are often *also* real speech,
-# so a match only downgrades a segment to "uncertain"; it never deletes it.
 HALLUCINATION_PHRASES = {
     "thank you", "thanks for watching", "thank you for watching", "thank you so much for watching",
     "please subscribe", "subscribe to my channel", "like and subscribe", "you", "bye",
     "subtitles by the amara org community", "transcription by castingwords",
 }
-_whisper_lock = threading.Lock()  # MLX/Metal: one transcription at a time
+_whisper_lock = threading.Lock()
 
 class AudioDecodeError(RuntimeError):
     pass
 
 def norm(s: str) -> str:
-    """Unicode-aware normalization: casefold, collapse non-word chars (\\w covers all scripts)."""
     return re.sub(r"[\W_]+", " ", s.casefold()).strip()
 
 def decode_pcm(path: Path) -> np.ndarray:
-    """Any container/codec ffmpeg understands → float32 mono 16 kHz. Raises AudioDecodeError."""
     proc = subprocess.run([config.FFMPEG, "-v", "error", "-nostdin", "-i", str(path), "-vn",
                            "-ac", "1", "-ar", str(SR), "-f", "s16le", "-"], capture_output=True)
     if proc.returncode != 0:
@@ -57,15 +45,14 @@ def levels(pcm: np.ndarray) -> dict:
     return {"duration_s": round(pcm.size / SR, 2), "peak_db": db(peak), "rms_db": db(rms)}
 
 def grade_segment(seg: dict) -> tuple[str, list[str]]:
-    """→ (tier, flags). tier ∈ confident | uncertain | rejected."""
     text = norm(seg.get("text", ""))
     nsp, lp, cr = seg.get("no_speech_prob", 0.0), seg.get("avg_logprob", 0.0), seg.get("compression_ratio", 0.0)
     if not text:
-        return "rejected", ["no_text"]                 # empty, "♪", punctuation only
+        return "rejected", ["no_text"]
     if cr > COMPRESSION_RATIO_MAX:
-        return "rejected", ["repetitive"]              # decoding loop
+        return "rejected", ["repetitive"]
     if nsp > NO_SPEECH_PROB_MAX and lp < AVG_LOGPROB_MIN:
-        return "rejected", ["no_speech"]               # Whisper's own silence rule
+        return "rejected", ["no_speech"]
     flags = []
     if text in HALLUCINATION_PHRASES:
         flags.append("common_hallucination_phrase")
@@ -76,7 +63,6 @@ def grade_segment(seg: dict) -> tuple[str, list[str]]:
     return ("uncertain" if flags else "confident"), flags
 
 def transcribe_pcm(pcm: np.ndarray) -> dict:
-    """Returns a transcript dict. Never raises: Whisper errors are reported as status=error."""
     lv = levels(pcm)
     base = {"model": config.WHISPER_MODEL, "audio": lv, "language": None, "text": "", "uncertain_text": "",
             "segments": [], "rejected_segments": [], "status": "ok", "error": None}

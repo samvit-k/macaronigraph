@@ -1,11 +1,10 @@
-"""Graph extraction (no LLM): input preparation, JSON parsing, mention matching, grounding end to end."""
+"""Graph extraction without an LLM: input preparation, JSON parsing, mention matching and grounding."""
 import pytest
 
 from backend.graph import extract as ex
 from test_chunking import make_record, oseg, seg
 
 def prep(*texts, context=()):
-    """Prepared input with evidence passages P1..Pn (transcript chunks) and context-only overlays."""
     return {"reel_id": "R1", "content_hash": "h",
             "passages": [{"pid": f"P{i + 1}", "chunk_id": f"R1:transcript:{i:03d}", "content_type": "transcript",
                           "text": t, "start": float(i), "end": float(i + 1)} for i, t in enumerate(texts)],
@@ -17,8 +16,6 @@ def concept(name, surface=None, passages=("P1",), type_="technology"):
 def rel(s, p, o, pid, quote):
     return {"subject": s, "predicate": p, "object": o, "passage": pid, "quote": quote}
 
-# ---------------------------------------------------------------- prepare
-
 def test_prepare_excludes_fragments_and_makes_short_overlays_context_only():
     rec = make_record([seg(0, 5, "Triton is built on top of CUDA for writing GPU kernels.")],
                       [oseg(0, 28, "SHIP IT"), oseg(3, 4, "aN", quality="fragment"),
@@ -26,12 +23,10 @@ def test_prepare_excludes_fragments_and_makes_short_overlays_context_only():
     p = ex.prepare(rec)
     kinds = [x["content_type"] for x in p["passages"]]
     assert "ocr_fragment" not in kinds and p["context"] == ["SHIP IT"]
-    assert all(x["chunk_id"].startswith("R1:") for x in p["passages"])          # Chroma chunk ids
+    assert all(x["chunk_id"].startswith("R1:") for x in p["passages"])
     assert "SHIP IT" not in "\n".join(x["text"] for x in p["passages"])
     prompt = ex.prompt_for(p)
     assert "CONTEXT ONLY" in prompt and "\n1. (" in prompt and "SHIP IT" in prompt.split("CONTEXT ONLY")[1]
-
-# ---------------------------------------------------------------- parse_json
 
 def test_parse_json_requires_both_lists_but_allows_empty_ones():
     assert ex.parse_json('{"concepts": [], "relations": []}') == {"concepts": [], "relations": []}
@@ -45,7 +40,7 @@ def test_parse_compact_positional_format():
     out = ex.parse_json('{"c":[["Triton","technology","Triton",[2]],["CUDA","technology","CUDA",["3"]],["bad"]],'
                         '"r":[["Triton","DEPENDS_ON","CUDA",2,"Triton is built on top of CUDA"],[1,2]]}')
     assert out["concepts"][0] == {"name": "Triton", "type": "technology", "surface": "Triton", "passages": ["P2"]}
-    assert out["concepts"][1]["passages"] == ["P3"] and out["concepts"][2] is None      # malformed row dropped later
+    assert out["concepts"][1]["passages"] == ["P3"] and out["concepts"][2] is None
     assert out["relations"][0]["passage"] == "P2" and out["relations"][1] is None
     for bad in ('{"c": []}', '{"r": []}', '{"c": {}, "r": []}'):
         with pytest.raises(ex.ExtractionError):
@@ -76,8 +71,6 @@ def test_truncated_output_is_retried_then_reported_not_silently_accepted():
     with pytest.raises(ex.ExtractionError):
         ex.propose(_FakeLLM(("not json", "stop"), ("still not json", "stop")), p)
 
-# ---------------------------------------------------------------- surface matching
-
 @pytest.mark.parametrize("surface,text", [("CUDA", "Install CUDA-Q today"), ("x86", "built for x86-64 chips"),
                                           ("CUDA", "the CUDAQ platform"), ("C", "written in C++"), ("C", "or C#"),
                                           ("C++", "plain C code"), ("GPU", "a TPU is different"),
@@ -91,16 +84,16 @@ def test_distinct_identifiers_never_match(surface, text):
     ("CUDA-Q", "Step 1. Install CUDA-Q, NVIDIA's platform", "exact"),
     ("C++", "learn C++, then Rust", "exact"),
     ("agents.md", "put rules in your agents.md file.", "exact"),
-    ("inference engineering", "why inferenoe engineering matters", "fuzzy"),   # OCR slip on plain words (0.95)
+    ("inference engineering", "why inferenoe engineering matters", "fuzzy"),
 ])
 def test_legitimate_matches(surface, text, kind):
     assert ex.surface_match(surface, text) == kind
 
 def test_fuzzy_matching_is_conservative():
-    assert ex.surface_match("harness", "knife VS hamess VS oven") is None       # 0.77 < FUZZY: not forced
-    assert ex.surface_match("Python", "Pythons") is None                       # prefix extension
-    assert ex.surface_match("printed circuit board", "printed circuit boards") is None   # plurals: not fuzzy
-    assert ex.surface_match("CUDA", "CUDAQ") is None                           # acronyms: exact only
+    assert ex.surface_match("harness", "knife VS hamess VS oven") is None
+    assert ex.surface_match("Python", "Pythons") is None
+    assert ex.surface_match("printed circuit board", "printed circuit boards") is None
+    assert ex.surface_match("CUDA", "CUDAQ") is None
 
 def test_curated_plural_synonym_is_recognized_through_grounding():
     p = prep("Design your first PCB in KiCad.", "Then order printed circuit boards from a fab.")
@@ -108,9 +101,7 @@ def test_curated_plural_synonym_is_recognized_through_grounding():
     chunks = {m["chunk_id"]: m for m in g["mentions"] if m["key"] == "printed circuit board"}
     assert set(chunks) == {"R1:transcript:000", "R1:transcript:001"}
     assert chunks["R1:transcript:001"]["method"] == "string_match"
-    assert chunks["R1:transcript:001"]["surface"] == "printed circuit boards"   # literal alias from aliases.json
-
-# ---------------------------------------------------------------- grounding end to end
+    assert chunks["R1:transcript:001"]["surface"] == "printed circuit boards"
 
 def test_supported_relation_survives_as_proposed_with_provenance():
     p = prep("Triton is built on top of CUDA for writing fast GPU kernels.")
@@ -162,13 +153,11 @@ def test_unsupported_model_rename_is_not_used_to_resolve_relations():
     raw = {"concepts": [concept("Triton", "Trident", ["P1"]), concept("CUDA", passages=["P1"])],
            "relations": [rel("Triton", "DEPENDS_ON", "CUDA", "P1", "Trident is built on top of CUDA")]}
     g = ex.ground(raw, p)
-    # both are accepted only on their own evidence: "Trident" where it is written (P1), "Triton" only where the
-    # name itself occurs (P2) — the model's rename never turns P1's "Trident" into "Triton"
     assert {"trident", "triton"} <= set(g["concepts"])
     by = {(m["chunk_id"], m["key"]) for m in g["mentions"]}
     assert ("R1:transcript:000", "trident") in by and ("R1:transcript:000", "triton") not in by
     assert any(r["kind"] == "rename" for r in g["rejected"])
-    assert g["assertions"] == []                       # Triton is not mentioned in the cited passage P1
+    assert g["assertions"] == []
     assert any(r["kind"] == "relation" and "not both mentioned" in r["reason"] for r in g["rejected"])
 
 def test_unsupported_rename_whose_name_is_absent_cannot_resolve_relations():
@@ -184,7 +173,7 @@ def test_phrase_surfaces_never_become_concepts():
     raw = {"concepts": [concept("Claude SDK", "TheDemoApp embeds the Claude SDK", ["P1"], "tool"),
                         concept("Grok", "Grok relies on a small custom wrapper", ["P1"], "tool")], "relations": []}
     g = ex.ground(raw, p)
-    assert set(g["concepts"]) == {"claude sdk"}                     # the name itself occurs → accepted
+    assert set(g["concepts"]) == {"claude sdk"}
     assert all(len(c["name"].split()) <= ex.MAX_SURFACE_WORDS for c in g["concepts"].values())
 
 def test_guarded_asr_correction_is_accepted():
@@ -228,14 +217,12 @@ def test_grounding_is_deterministic():
            "relations": [rel("Triton", "DEPENDS_ON", "CUDA", "P1", "Triton is built on top of CUDA")]}
     assert ex.ground(raw, p) == ex.ground(raw, p)
 
-# ---------------------------------------------------------------- benchmark-driven rules (prompt p4)
-
 def test_wrong_citation_is_only_a_hint():
     p = prep("Thank you.", "STM32 board= ctrl: Nav2 + route + mapping")
     g = ex.ground({"concepts": [concept("Nav2", passages=["P1"]), concept("STM32", passages=["P1"])],
                    "relations": []}, p)
     assert set(g["concepts"]) == {"nav2", "stm32"}
-    assert {m["chunk_id"] for m in g["mentions"]} == {"R1:transcript:001"}      # only where the text occurs
+    assert {m["chunk_id"] for m in g["mentions"]} == {"R1:transcript:001"}
 
 def test_relation_quote_must_name_both_concepts():
     p = prep("A chef needs tools like knives and Websearch. A harness keeps the tools near the stove.")
@@ -252,17 +239,14 @@ def test_uncorroborated_ocr_surface_is_rejected_but_spoken_one_kept():
     assert g["concepts"] == {} and any("uncorroborated OCR" in r["reason"] for r in g["rejected"])
     spoken = prep("We use Trident for kernels.")
     g = ex.ground({"concepts": [concept("Triton", "Trident")], "relations": []}, spoken)
-    assert "trident" in g["concepts"]                                             # spoken surface: kept as itself
+    assert "trident" in g["concepts"]
 
 def test_underscored_names_get_readable_display_names():
     g = ex.ground({"concepts": [concept("Pi_harness", "Pi harness")], "relations": []},
                   prep("The Pi harness ships with the demo kit."))
     assert g["concepts"]["pi harness"]["name"] == "Pi harness"
 
-# ---------------------------------------------------------------- failure recovery (r2): repair, retry budget, salvage
-
 class _BudgetLLM:
-    """Scripted outputs; records the token budget of every call."""
 
     def __init__(self, *outputs):
         self.outputs, self.budgets = list(outputs), []
@@ -272,7 +256,6 @@ class _BudgetLLM:
         text, reason = self.outputs.pop(0)
         return text, {"finish_reason": reason, "seconds": 1.5, "generation_tokens": 10}
 
-# the exact defect seen in real output: objects after the first lose their opening brace
 MISSING_BRACES = ('{"c":[{"n":"Triton","t":"technology","s":"Triton","p":[1]},"n":"CUDA","t":"technology","s":"CUDA",'
                   '"p":[1]}],"r":[{"s":"Triton","p":"DEPENDS_ON","o":"CUDA","i":1,"q":"Triton is built on top of '
                   'CUDA"},"s":"CUDA","p":"USED_FOR","o":"Triton","i":1,"q":"Triton is built on top of CUDA"}]}')
@@ -284,8 +267,8 @@ def test_structural_repair_fixes_missing_braces_without_adding_content():
     assert [c["name"] for c in data["concepts"]] == ["Triton", "CUDA"] and len(data["relations"]) == 2
     assert repairs and "missing '{'" in repairs[0]
     fixed, _ = ex.repair_json(MISSING_BRACES)
-    strip = lambda s: "".join(ch for ch in s if ch not in "{}[],")            # noqa: E731
-    assert strip(fixed) == strip(MISSING_BRACES)                               # only punctuation changed
+    strip = lambda s: "".join(ch for ch in s if ch not in "{}[],")  # noqa: E731
+    assert strip(fixed) == strip(MISSING_BRACES)
 
 def test_repair_keeps_strict_schema_validation():
     for bad in ('{"c":[{"n":"x"},"n":"y"}]}', '{"r":[]}', 'nothing', '{"c":[{"n":"x"}],"r":[{"s":}]}'):
@@ -311,7 +294,7 @@ def test_truncated_retry_keeps_only_fully_emitted_objects_and_is_flagged_partial
            '"p":[1]},{"n":"Pyt')
     llm = _BudgetLLM((cut, "length"), (cut, "length"))
     raw, stats = ex.propose(llm, prep("Triton is built on top of CUDA."))
-    assert [c["name"] for c in raw["concepts"]] == ["Triton", "CUDA"]          # the cut "Pyt…" is not completed
+    assert [c["name"] for c in raw["concepts"]] == ["Triton", "CUDA"]
     assert raw["relations"] == [] and stats["partial"] is True
     assert stats["salvage"]["r_list_missing"] and not stats["salvage"]["c_list_complete"]
 
@@ -331,8 +314,6 @@ def test_r1_label_is_reproduced_and_r2_is_a_distinct_version():
     r1 = ex._r1_version("m", "rev")
     assert ex.compatible_versions("m", "rev") == [r1] and ex.extractor_version("m", "rev") != r1
     assert ex.extractor_version("m", "rev").startswith("x-p4i1r2-") and r1.startswith("x-p4i1-")
-
-# ---------------------------------------------------------------- relation evidence (g2)
 
 def _ground_rel(text, a, b, pred, quote=None):
     raw = {"concepts": [concept(a), concept(b)], "relations": [rel(a, pred, b, "P1", quote or text)]}
@@ -359,7 +340,6 @@ def test_stated_relations_and_comparisons_survive(text, a, b, pred):
     assert len(_ground_rel(text, a, b, pred)["assertions"]) == 1
 
 def test_fuzzy_spelling_never_counts_as_relation_evidence():
-    """NeetCode is not LeetCode, even though the strings are 0.875 similar."""
     text = "Grind LeetCode daily. Python with the NeetCode roadmap is the holy grail."
     g = ex.ground({"concepts": [concept("Python"), concept("LeetCode")],
                    "relations": [rel("Python", "USES", "LeetCode", "P1", "Python with the NeetCode roadmap")]}, prep(text))
@@ -383,8 +363,6 @@ def test_name_inside_another_name_is_not_a_relation():
            "relations": [rel("Playwright", "USES", "Playwright MCP", "P1", '"args": ["@playwright/mcp@latest"]')]}
     g = ex.ground(raw, prep(text))
     assert g["assertions"] == [] and any("inside the other's name" in r["reason"] for r in g["rejected"])
-
-# ---------------------------------------------------------------- concept rules (g2) + curated fixes
 
 def test_numeric_values_are_not_concepts():
     g = ex.ground({"concepts": [concept("1, 6 and 11"), concept("$180K"), concept("2.4 GHz")], "relations": []},
@@ -413,20 +391,18 @@ def test_curated_fixes_klayout_neetcode_esp32_playwright_mcp_common_coder():
     assert by["NeetCode"]["type"] == "resource" and by["ESP32"]["type"] == "technology"
     assert any("curated non-concept" in r["reason"] for r in g["rejected"])
 
-# ---------------------------------------------------------------- context-dependent alias: Higgsfield vs the Higgs field
-
 def test_higgs_field_with_company_context_maps_to_higgsfield_keeping_surface_and_provenance():
     p = prep("Open the plugin list and enable the Higgs Field MCP plugin before uploading an image.")
     g = ex.ground({"concepts": [concept("Higgs Field", type_="organization")], "relations": []}, p)
     assert set(g["concepts"]) == {"higgsfield"} and g["concepts"]["higgsfield"]["name"] == "Higgsfield"
     assert g["concepts"]["higgsfield"]["type"] == "organization"
     [m] = g["mentions"]
-    assert m["surface"] == "Higgs Field" and m["method"] == "llm+exact_match+context_alias"   # original words kept
+    assert m["surface"] == "Higgs Field" and m["method"] == "llm+exact_match+context_alias"
     assert m["chunk_id"] == p["passages"][0]["chunk_id"]
 
 @pytest.mark.parametrize("text", [
     "The Higgs field gives elementary particles their mass, confirmed at CERN in 2012.",
-    "AI explains physics: the Higgs field gives particles mass.",           # "AI" alone is not company context
+    "AI explains physics: the Higgs field gives particles mass.",
 ])
 def test_higgs_field_in_physics_stays_a_distinct_scientific_concept(text):
     g = ex.ground({"concepts": [concept("Higgs field", type_="concept")], "relations": []}, prep(text))
@@ -440,13 +416,12 @@ def test_one_reel_with_both_meanings_keeps_each_passage_with_its_own_concept():
     assert by_chunk == {p["passages"][0]["chunk_id"]: "higgsfield", p["passages"][1]["chunk_id"]: "higgs field"}
 
 def test_context_alias_recall_does_not_cross_contexts():
-    """Deterministic recall must not add the company to a physics passage (or the physics concept to a plugin one)."""
     p = prep("Enable the Higgs Field MCP plugin.", "Separately, the Higgs field gives mass.")
     g = ex.ground({"concepts": [concept("Higgs Field", passages=("P1",))], "relations": []}, p)
     assert [(m["key"], m["chunk_id"]) for m in g["mentions"]] == [("higgsfield", p["passages"][0]["chunk_id"])]
 
 def test_context_rule_is_not_an_unconditional_alias():
     from backend.graph import normalize as nz
-    assert nz.canonicalize("Higgs Field")[0] == "higgs field"                 # no plain alias
-    assert frozenset(("higgs field", "higgsfield")) in nz.contextual_pairs()  # verify treats them as distinct
+    assert nz.canonicalize("Higgs Field")[0] == "higgs field"
+    assert frozenset(("higgs field", "higgsfield")) in nz.contextual_pairs()
     assert not nz.context_supports(nz.context_alias("Higgs Field"), "AI video tools and AI models")

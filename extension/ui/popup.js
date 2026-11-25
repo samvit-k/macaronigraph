@@ -1,11 +1,9 @@
-// MacaroniGraph popup (UI only). Same contract with background.js as before: "start" / "stop" messages and
-// session state from chrome.storage.session. Reads library stats from the local backend.
+// Extension popup: start/stop messages to background.js, session state from chrome.storage.session, library stats from the backend.
 const API = "http://localhost:8765";
 const $ = (id) => document.getElementById(id);
 const FIELDS = ["source", "limit", "offset", "interval", "mode"];
-const MIN_PER_REEL = 1.05; // measured: 25 Reels in ~26 min with background processing
+const MIN_PER_REEL = 1.05;
 
-// ---------- segmented controls (hidden inputs keep the field logic simple) ----------
 function syncSeg(seg) {
   const input = $(seg.dataset.for);
   for (const b of seg.querySelectorAll("button")) {
@@ -42,10 +40,9 @@ for (const b of document.querySelectorAll(".stepper button")) {
 function updateEstimate() {
   const n = Number($("limit").value) || 0;
   const min = Math.round(n * MIN_PER_REEL);
-  $("estimate").textContent = n ? `${min < 60 ? `${min} Min` : `${(min / 60).toFixed(1)} Hours`} · ` : "";  // real text: copies correctly
+  $("estimate").textContent = n ? `${min < 60 ? `${min} Min` : `${(min / 60).toFixed(1)} Hours`} · ` : "";
 }
 
-// ---------- persisted form ----------
 const saveForm = () => chrome.storage.local.set({ form: Object.fromEntries(FIELDS.map((f) => [f, $(f).value])) });
 FIELDS.forEach((f) => $(f).addEventListener("change", () => { saveForm(); syncControls(); refreshStats(); }));
 $("limit").addEventListener("input", updateEstimate);
@@ -56,7 +53,6 @@ chrome.storage.local.get("form").then(({ form }) => {
 });
 syncControls();
 
-// ---------- backend health + library stats ----------
 async function refreshHealth() {
   const h = $("health");
   try {
@@ -104,10 +100,8 @@ async function refreshStats() {
   }
 }
 
-// ---------- activity log ----------
-// background.js writes `${new Date().toLocaleTimeString()}  ${message}`.
 const LINE_RE = /^(\d{1,2}:\d{2}(?::\d{2})?(?:\s?[AP]M)?)\s{2}([\s\S]*)$/;
-const MARKS = [ // first match wins: failures, then warnings, then successes, then info
+const MARKS = [
   { re: /\b(failed|crashed|capture lost|overloaded|unreachable|offline|login required|error)\b/i, cls: "bad", label: "×" },
   { re: /\b(partial|needs_retry|warning|briefly_muted)\b/i, cls: "warn", label: "!" },
   { re: /\b(ok|ok_no_speech|done|session finished)\b/, cls: "ok", label: "✓" },
@@ -130,14 +124,14 @@ function renderLogLine(line) {
   return li;
 }
 
-// Chrome caps popups at 600px: give the activity log whatever height is left, so the page never scrolls.
+// Chrome caps popups at 600px: the activity log takes the remaining height so the page never scrolls.
 const POPUP_MAX = 600;
 function fitLog() {
   const log = $("log");
   if (!$("logWrap").open) return;
   log.style.maxHeight = "none";
   const others = document.documentElement.scrollHeight - log.offsetHeight;
-  log.style.maxHeight = `${Math.max(48, Math.floor(POPUP_MAX - others) - 2)}px`;  // -2: sub-pixel rounding
+  log.style.maxHeight = `${Math.max(48, Math.floor(POPUP_MAX - others) - 2)}px`;
   log.scrollTop = log.scrollHeight;
 }
 $("logWrap").addEventListener("toggle", fitLog);
@@ -167,7 +161,7 @@ function render(state) {
     if (/^processing|waiting/i.test(current)) cur.append(current);
     else if (current) cur.append("Now: ", Object.assign(document.createElement("b"), { textContent: current }));
   }
-  if (wasRunning !== running && running) $("logWrap").open = true;  // show activity when a run starts
+  if (wasRunning !== running && running) $("logWrap").open = true;
   wasRunning = running;
   fitLog();
 }
@@ -177,10 +171,9 @@ chrome.storage.onChanged.addListener((ch, area) => {
   if (area === "session" && ch.state) { render(ch.state.newValue); refreshStats(); }
 });
 
-// ---------- actions ----------
 function showHint(text, isError = false) {
   $("hint").className = isError ? "hint error" : "hint";
-  $("hintText").textContent = text;  // the estimate span stays intact
+  $("hintText").textContent = text;
 }
 
 $("start").onclick = async () => {

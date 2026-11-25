@@ -1,14 +1,4 @@
-"""Generate permitted, self-made test media with known ground truth, then verify it.
-
-Produces fixtures/media/*.mp4 (vertical 720x1280, H.264/AAC), fixtures/ground_truth.json and
-fixtures/test_saved_posts.json (same schema as the Instagram export, incl. its latin-1 mojibake).
-
-Clips:
-  TESTCLIP01-03  speech (macOS `say`) + timed on-screen text cards  -> expect audio_class=speech
-                 TESTCLIP03 also has a 0.6 s flash card to probe the OCR sampling interval
-  TESTSILENT     text cards, silent audio track                      -> expect silent
-  TESTMUSIC      text cards, synthetic melody, no speech             -> expect non_speech
-  TESTMISSING    URL that 404s                                       -> expect failed/unavailable
+"""Generate self-made test media with known ground truth, then verify it.
 
 Usage: .venv/bin/python scripts/make_test_media.py [--verify-only]
 """
@@ -46,11 +36,10 @@ SPEECH = {
         "script": "Let me explain compound interest. When you invest money, you earn returns on your returns, "
                   "so starting early matters far more than the amount you begin with.",
         "cards": ["COMPOUND INTEREST", "RETURNS ON RETURNS", "START EARLY"],
-        "flash": "FLASH CARD",  # 0.6 s overlay
+        "flash": "FLASH CARD",
         "caption": "Why starting early wins 💸 #finance #investing",
     },
 }
-# Burned-in word-by-word captions (like many Reels): 3-word chunks in a fixed band + a persistent title.
 SUBS = {
     "TESTSUBS": {
         "script": "Caching stores the result of an expensive computation so the next request can reuse it. "
@@ -83,14 +72,13 @@ def max_volume_db(path: Path, start: float, end: float) -> float:
     return float(m.group(1)) if m and m.group(1) != "-inf" else -200.0
 
 def card_schedule(cards: list[str], total: float) -> list[dict]:
-    """Cards evenly split the clip, with a small gap between them."""
     span = total / len(cards)
     return [{"text": t, "start": round(i * span + 0.2, 2), "end": round((i + 1) * span - 0.2, 2)}
             for i, t in enumerate(cards)]
 
 def drawtext(card: dict, y: str = "(h-text_h)/2", size: int = 64) -> str:
     y, size = card.get("y", y), card.get("size", size)
-    size = min(size, int(1000 / max(len(card["text"]), 1)))  # Arial Bold ≈ 0.72em/char; keep inside 720 px
+    size = min(size, int(1000 / max(len(card["text"]), 1)))
     return (f"drawtext=fontfile='{FONT}':text='{card['text']}':fontcolor=white:fontsize={size}:"
             f"box=1:boxcolor=black@0.6:boxborderw=24:x=(w-text_w)/2:y={y}:"
             f"enable='between(t,{card['start']},{card['end']})'")
@@ -101,12 +89,11 @@ def render(out: Path, audio_args: list[str], total: float, cards: list[dict], ex
          "-f", "lavfi", "-i", f"color=c=0x1f3a5f:s=720x1280:r=30:d={total}",
          *audio_args,
          "-vf", ",".join(filters),
-         "-af", "apad",                 # pad audio with silence; -t (not -shortest) sets the length
+         "-af", "apad",
          "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "veryfast",
          "-c:a", "aac", "-b:a", "128k", "-t", str(total), str(out)])
 
 def mojibake(s: str) -> str:
-    """Reproduce Instagram's export encoding (UTF-8 bytes rendered as latin-1 code points)."""
     return s.encode("utf-8").decode("latin-1")
 
 def post(reel_id: str, caption: str, ts: int) -> dict:
@@ -150,7 +137,7 @@ def generate() -> None:
             words = [w.strip(".,").upper() for w in spec["script"].split()]
             n = spec["chunk_words"]
             chunks = [" ".join(words[i:i + n]) for i in range(0, len(words), n)]
-            per_word = speech_end / len(words)  # captions follow speech pace
+            per_word = speech_end / len(words)
             subs, t = [], 0.0
             for c in chunks:
                 dur = per_word * len(c.split())
@@ -168,7 +155,7 @@ def generate() -> None:
         total = spec["duration"]
         if spec["audio"] == "silent":
             audio = ["-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo"]
-        else:  # stepped arpeggio: audible and tonal, but no speech
+        else:
             audio = ["-f", "lavfi", "-i",
                      f"aevalsrc='0.25*sin(2*PI*t*(262+131*mod(floor(t*4),4)))':s=44100:d={total}"]
         cards = card_schedule(spec["cards"], total)
@@ -192,7 +179,6 @@ def ocr_at(path: Path, t: float) -> str:
     return pytesseract.image_to_string(Image.open(io.BytesIO(png)).convert("L")).upper()
 
 def verify() -> bool:
-    """Check generated media against ground truth. Returns True if all checks pass."""
     config.configure_tesseract()
     truth = json.loads(config.TEST_GROUND_TRUTH.read_text())
     ok = True
@@ -225,7 +211,7 @@ def verify() -> bool:
             if c["start"] > 0:
                 report(c["text"] not in ocr_at(path, max(0.0, c["start"] - 0.15)),
                        f"card '{c['text']}' absent just before {c['start']}s")
-        for s in t.get("subtitles", [])[::3]:  # spot-check every third caption chunk
+        for s in t.get("subtitles", [])[::3]:
             mid = (s["start"] + s["end"]) / 2
             report(s["text"] in " ".join(ocr_at(path, mid).split()), f"subtitle '{s['text']}' visible at {mid:.2f}s")
     return ok

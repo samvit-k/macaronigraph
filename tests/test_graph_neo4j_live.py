@@ -1,6 +1,4 @@
-"""LIVE Neo4j tests against a THROWAWAY instance: own temp config/data/run dirs, random localhost ports, own
-password — started with scripts/neo4j.sh and stopped afterwards. The production database (output/neo4j) is
-never touched. Skipped when Neo4j is not installed in .tools/neo4j."""
+"""Live Neo4j tests against a throwaway instance with its own directories and random localhost ports."""
 import os
 import subprocess
 import time
@@ -49,7 +47,7 @@ def neo(tmp_path_factory):
 @pytest.fixture(autouse=True)
 def clean(neo, isolated_output, monkeypatch):
     neo.run("MATCH (n) DETACH DELETE n")
-    monkeypatch.setattr(gs, "extractor_version", lambda model_id=None: FakeLLM.version)   # what verify accepts
+    monkeypatch.setattr(gs, "extractor_version", lambda model_id=None: FakeLLM.version)
     monkeypatch.setattr(gs, "compatible_versions", lambda model_id=None: [])
     monkeypatch.setattr(config, "EMBED_MODEL", embedder.HashEmbedder.MODEL)
     monkeypatch.setattr(embedder, "_cache", {})
@@ -59,7 +57,6 @@ def clean(neo, isolated_output, monkeypatch):
         yield
 
 def doc(rid, concepts, assertions=(), passages=None, h="h1"):
-    """Minimal hand-built Reel document (store-level tests)."""
     passages = passages or [{"chunk_id": f"{rid}:transcript:000", "reel_id": rid, "content_type": "transcript",
                              "text": " ".join(c[1] for c in concepts), "evidence": True}]
     pid = passages[0]["chunk_id"]
@@ -76,8 +73,6 @@ def doc(rid, concepts, assertions=(), passages=None, h="h1"):
 def keys(neo):
     return {r["k"] for r in neo.run("MATCH (c:Concept) RETURN c.key AS k")}
 
-# ---------------------------------------------------------------- schema / store semantics
-
 def test_constraints_exist_and_reject_duplicates(neo):
     names = {r["name"] for r in neo.run("SHOW CONSTRAINTS YIELD name RETURN name")}
     assert {"reel_id", "passage_id", "concept_key", "assertion_id"} <= names
@@ -88,8 +83,8 @@ def test_constraints_exist_and_reject_duplicates(neo):
 def test_rewriting_one_reel_preserves_shared_concepts(neo):
     neo.write_reel(doc("A", [("cuda", "CUDA"), ("triton", "Triton")], [("triton", "DEPENDS_ON", "cuda")]))
     neo.write_reel(doc("B", [("cuda", "CUDA"), ("gpu", "GPU")]))
-    neo.write_reel(doc("A", [("triton", "Triton")], h="h2"))                       # A no longer mentions CUDA
-    assert keys(neo) == {"cuda", "triton", "gpu"}                                    # CUDA kept: B still uses it
+    neo.write_reel(doc("A", [("triton", "Triton")], h="h2"))
+    assert keys(neo) == {"cuda", "triton", "gpu"}
     assert neo.run("MATCH (a:Assertion) RETURN count(a) AS n")[0]["n"] == 0
     assert neo.reel_hashes() == {"A": "h2", "B": "h1"}
 
@@ -106,8 +101,8 @@ def test_failed_transaction_preserves_previous_graph(neo):
     before = neo.run("MATCH (n) RETURN labels(n)[0] AS l, count(*) AS c ORDER BY l")
 
     def write_then_fail(tx, d):
-        st.write_reel_tx(tx, d)                                                     # full rewrite happens…
-        raise RuntimeError("crash inside the transaction")                          # …then the tx fails
+        st.write_reel_tx(tx, d)
+        raise RuntimeError("crash inside the transaction")
 
     with pytest.raises(RuntimeError):
         neo._write(write_then_fail, doc("A", [("python", "Python")], h="h2"))
@@ -120,8 +115,6 @@ def test_offline_store_reports_graph_offline_and_closes_driver():
         s.ping()
     assert s._driver is None
 
-# ---------------------------------------------------------------- end-to-end with sync (fake LLM, live Neo4j)
-
 def test_sync_end_to_end_and_review_survives_refresh(neo):
     triton_reel("A")
     triton_reel("B", extra="for GPU kernels")
@@ -131,7 +124,7 @@ def test_sync_end_to_end_and_review_survives_refresh(neo):
     assert r["written"] == 2 and r["ready"] == 2
     assert q.verify(neo)["ok"], q.verify(neo)["problems"]
     rel = q.between(neo, "Triton", "CUDA")
-    assert set(rel["relations"]) == {"corroborated"}                                # proposed in 2 Reels
+    assert set(rel["relations"]) == {"corroborated"}
     assert {x["reel_id"] for x in rel["relations"]["corroborated"]} == {"A", "B"}
     assert rel["co_mentioned_in"] and rel["co_mention_note"].startswith("same Reel only")
     a = next(x for x in q.evidence(neo, "Triton", "CUDA") if x["reel_id"] == "A" and x["content_type"] == "transcript")
@@ -140,11 +133,11 @@ def test_sync_end_to_end_and_review_survives_refresh(neo):
     gs.sync(store=neo, llm=llm)
     st_of = {x["assertion_id"]: x["status"] for x in q.evidence(neo, "Triton", "CUDA")}
     assert st_of[a["assertion_id"]] == "verified"
-    triton_reel("A", extra="and more about Python")                                 # canonical record improves
+    triton_reel("A", extra="and more about Python")
     indexer.sync_all()
     gs.sync(store=neo, llm=llm)
     st_of = {x["assertion_id"]: x["status"] for x in q.evidence(neo, "Triton", "CUDA")}
-    assert st_of[a["assertion_id"]] == "verified"                                    # review re-applied
+    assert st_of[a["assertion_id"]] == "verified"
     gs.put_review("triton", "DEPENDS_ON", "cuda", a["chunk_id"], "reject", "actually wrong")
     gs.sync(store=neo, llm=llm)
     assert a["assertion_id"] not in {x["assertion_id"] for x in q.evidence(neo, "Triton", "CUDA")}

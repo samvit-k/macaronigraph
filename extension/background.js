@@ -1,14 +1,12 @@
-// Session orchestrator. One user click (popup "Start Processing") → capture the active tab once,
-// then navigate that same tab through the queue, recording each item. Per-item failures are recorded
-// and the session continues; auth walls and capture loss stop the session (never bypassed).
+// Session orchestrator: one click captures the active tab once, then navigates it through the queue; auth walls and capture loss stop the session (never bypassed).
 const API = "http://localhost:8765";
 const MAX_CAPTURE_S = 180;
 const STALL_MS = 6000;
 const NAV_TIMEOUT_MS = 30000;
 const PACE_MS = { test: 1000, instagram: 5000 };
 
-let S = null;          // current session state
-let starting = false;  // guards concurrent Start clicks during initialization
+let S = null;
+let starting = false;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -34,7 +32,6 @@ async function ensureOffscreen() {
 }
 const offscreen = (type, payload = {}) => chrome.runtime.sendMessage({ target: "offscreen", type, ...payload });
 
-// Stop any (partially) started capture and close the offscreen document. Safe to call repeatedly.
 async function teardown() {
   await offscreen("stop-capture").catch(() => {});
   const ctx = await chrome.runtime.getContexts({ contextTypes: ["OFFSCREEN_DOCUMENT"] }).catch(() => []);
@@ -53,8 +50,8 @@ async function inject(tabId) {
   await chrome.scripting.executeScript({ target: { tabId }, files: ["content.js"] });
 }
 
-// Same-origin items are opened from inside the page (renderer-initiated) so Chrome can carry the user's
-// in-page click forward; cross-origin items fall back to tabs.update (activation will not carry).
+// Same-origin items open from inside the page so Chrome carries the in-page user activation; cross-origin items fall back to tabs.update.
+
 async function navigate(tabId, url) {
   const tab = await chrome.tabs.get(tabId);
   const sameOrigin = (() => { try { return new URL(tab.url).origin === new URL(url).origin; } catch { return false; } })();
@@ -78,11 +75,10 @@ function waitForLoad(tabId, trigger) {
   });
 }
 
-// Job-store bookkeeping (Phase 2): keep this session's leases alive, and release them when it ends.
 const HEARTBEAT_MS = 30000;
 function finishSession(sessionId, reason) {
   return fetch(`${API}/api/session/${sessionId}/finish?reason=${encodeURIComponent(reason)}`, { method: "POST" })
-    .catch(() => {}); // backend reclaims stale leases itself if this never arrives
+    .catch(() => {});
 }
 
 async function start({ tabId, source, limit, offset, intervalMs, mode = "pending" }) {
@@ -94,7 +90,7 @@ async function start({ tabId, source, limit, offset, intervalMs, mode = "pending
     if (!/^https?:/.test(tab.url || "")) {
       throw new Error("open the backend start page (http://localhost:8765/) or an http(s) page first");
     }
-    // Fetch the queue BEFORE requesting the stream id, so the id is consumed immediately after issue.
+    // Fetch the queue before requesting the stream id, so the id is consumed immediately after issue.
     const sres = await fetch(`${API}/api/session?source=${source}&limit=${limit}&offset=${offset}&mode=${mode}`);
     if (!sres.ok) throw new Error(`backend /api/session: ${sres.status} ${await sres.text()}`);
     const session = await sres.json();
@@ -178,10 +174,10 @@ async function run() {
     endReason = `crashed: ${e.message}`;
     throw e;
   } finally {
-    await teardown();                     // capturing is over: release the tab right away
-    await finishSession(sid, endReason);  // un-uploaded leased Reels go straight back to the queue
+    await teardown();
+    await finishSession(sid, endReason);
     log("capture stopped; waiting for the backend to finish processing");
-    await waitForProcessing(sid);         // heartbeats continue: the session is not final until drained
+    await waitForProcessing(sid);
     clearInterval(hb);
     S.running = false;
     publish({ running: false, current: null });
@@ -189,8 +185,8 @@ async function run() {
   }
 }
 
-// The backend processes uploads in the background. Keep the session alive (heartbeats run in run())
-// until none of its uploads are queued, then report the final per-Reel outcomes.
+// Uploads are processed in the background: keep the session alive until none of them is queued.
+
 const DRAIN_POLL_MS = 5000;
 const DRAIN_MAX_MS = 60 * 60 * 1000;
 async function waitForProcessing(sid) {
@@ -247,7 +243,6 @@ async function processItem(it, index) {
     return prep?.status === "auth_required" ? { ...r, stopSession: "login required" } : r;
   }
 
-  // expected_s = what this capture intends to cover; video_duration_s = the real full length.
   const truncated = prep.duration > MAX_CAPTURE_S;
   const expected = truncated ? MAX_CAPTURE_S : prep.duration;
   const b = await offscreen("begin-item", { intervalMs: S.intervalMs, crop: { rect: prep.rect, viewport: prep.viewport } });
@@ -261,7 +256,6 @@ async function processItem(it, index) {
     return r?.ok ? r.result : failed(r);
   }
 
-  // Monitor until the video ends, loops, stalls, or the cap is reached.
   let reason = "ok", detail = null, maxT = 0, lastT = -1, lastProgress = Date.now(), mutedSeen = !!play.muted;
   let mutedMs = 0, lastPoll = Date.now();  // how long the page kept the video muted (brief ≠ unreliable)
   const deadline = Date.now() + (expected + 15) * 1000;
@@ -276,7 +270,7 @@ async function processItem(it, index) {
     if (m.muted) mutedMs += now - lastPoll;
     lastPoll = now;
     mutedSeen ||= m.muted;
-    if (m.t + 0.5 < lastT && lastT > expected * 0.8) { maxT = Math.max(maxT, lastT); break; } // page looped it
+    if (m.t + 0.5 < lastT && lastT > expected * 0.8) { maxT = Math.max(maxT, lastT); break; }
     if (m.t > lastT + 0.01) lastProgress = Date.now();
     lastT = m.t; maxT = Math.max(maxT, m.t);
     if (m.ended) { maxT = prep.duration; break; }
@@ -306,7 +300,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === "armed") onArmed(msg, _sender);
   if (msg.type === "stop") {
     if (S) S.abort = true;
-    if (S && !S.armed && S.running) {  // stopped before the in-page click: nothing is running yet, so clean up here
+    if (S && !S.armed && S.running) {
       call(S.tabId, "disarm").catch(() => {});
       finishSession(S.session.session_id, "stopped before start");
       teardown().then(() => { S.running = false; publish({ running: false, current: null }); });

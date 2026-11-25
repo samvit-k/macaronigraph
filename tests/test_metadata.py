@@ -1,3 +1,4 @@
+"""Instagram export parsing: Reel ids, mojibake repair and hashtags."""
 import hashlib
 
 from backend import config, metadata
@@ -20,7 +21,7 @@ def test_parse_fixture_preserves_raw_and_decodes():
     assert p["metadata"]["hashtags"] == ["ai", "databases"]
     assert p["metadata"]["owner"] == {"name": "Test Creator", "username": "test_creator",
                                       "url": "https://example.com/tester"}
-    assert p["metadata"]["raw"]["label_values"][0]["label"] == "URL"  # verbatim original
+    assert p["metadata"]["raw"]["label_values"][0]["label"] == "URL"
     assert p["saved_at"].startswith("2026-")
 
 def test_real_export_parses_and_is_not_modified():

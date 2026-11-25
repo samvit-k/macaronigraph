@@ -1,12 +1,4 @@
-"""Concept normalization: canonical keys, curated synonyms, acronym definitions, generic-word filtering.
-
-Merge only clear duplicates — case, spacing, ordinary plurals, curated synonyms (aliases.json), acronyms
-defined in the same Reel. Never fuzzy-merge different names:
-  C ≠ C++ ≠ C#,  CUDA ≠ CUDA-Q,  x86 ≠ x86-64,  GPU ≠ TPU,  Pandas ≠ panda.
-
-The normalization version (rules + aliases.json digest) is part of the graph hash, not of the LLM extraction
-version: editing aliases.json re-normalizes and rewrites affected Reels without re-running the LLM.
-"""
+"""Concept normalization: canonical keys, curated synonyms, acronym definitions and generic-word filtering."""
 from __future__ import annotations
 
 import hashlib
@@ -19,7 +11,6 @@ from pathlib import Path
 ALIASES_PATH = Path(__file__).with_name("aliases.json")
 RULES_VERSION = "n1"
 
-# Generic words / filler that are never concepts on their own (a name made only of these is rejected).
 STOPLIST = frozenset("""
 a an the of and or for to with in on at by from my your our their his her its all most some any every
 thing things stuff video videos reel reels post posts tip tips trick tricks hack hacks way ways idea ideas
@@ -35,8 +26,8 @@ CONNECTORS = frozenset(("of", "and", "the", "for", "to", "in", "on", "a"))
 CONCEPT_TYPES = ("technology", "tool", "method", "concept", "organization", "person", "resource")
 PROTECTED_WORDS = frozenset("series species news physics mathematics analytics robotics electronics graphics "
                             "kubernetes pandas windows jenkins redis ios macos aws sass less express".split())
-_LEAD = re.compile(r"^[^\w.#+]+")          # keep a leading "." (.NET)
-_TRAIL = re.compile(r"[^\w+#]+$")           # keep trailing "+" / "#" (C++, C#)
+_LEAD = re.compile(r"^[^\w.#+]+")
+_TRAIL = re.compile(r"[^\w+#]+$")
 _TOKEN_JUNK = re.compile(r"[^\w+#.\-]")
 
 def _fold(s: str) -> str:
@@ -57,7 +48,6 @@ def _singular(word: str) -> str:
     return word
 
 def _tokens(name: str) -> list[tuple[str, str]]:
-    """→ [(original token, normalized token)], hyphenated plain words split into words."""
     s = _fold(name).replace("&", " and ")
     s = _TRAIL.sub("", _LEAD.sub("", s))
     out: list[tuple[str, str]] = []
@@ -70,9 +60,9 @@ def _tokens(name: str) -> list[tuple[str, str]]:
             continue
         parts = tok.split("-")
         if len(parts) > 1 and all(p.isalpha() and len(p) >= 2 for p in parts):
-            out += [(p, p.lower()) for p in parts]      # "retrieval-augmented" → "retrieval augmented"
+            out += [(p, p.lower()) for p in parts]
         else:
-            out.append((tok, tok.lower()))              # identifiers keep hyphens: "cuda-q", "x86-64"
+            out.append((tok, tok.lower()))
     return out
 
 def base_key(name: str) -> str:
@@ -84,11 +74,8 @@ def base_key(name: str) -> str:
     acronym_plural = len(orig) > 2 and orig[-1] == "s" and orig[:-1].isupper()
     title_phrase = len(toks) > 1 and all(o[:1].isupper() for o, _ in toks)
     if orig.islower() or acronym_plural or (len(toks) > 1 and not title_phrase):
-        # never proper names: single capitalized words (Pandas, Windows) or Title-Case phrases (Linus Torvalds)
         words[-1] = _singular(words[-1]) if not acronym_plural else words[-1][:-1]
     return " ".join(words)
-
-# ---------------------------------------------------------------- curated aliases (reloaded when the file changes)
 
 _cache: dict = {"stamp": None}
 _cache_lock = threading.Lock()
@@ -117,42 +104,31 @@ def _alias_table() -> dict:
         return _cache
 
 def version() -> str:
-    """Normalization version: rules + current aliases.json content."""
     return f"{RULES_VERSION}-{_alias_table()['digest']}"
 
 def is_generic(name: str) -> bool:
     k = base_key(name)
     if k in _alias_table()["alias"]:
-        return False                         # curated concepts (incl. one-letter "C") are never generic
+        return False
     if not k or len(k) < 2 or k.replace(".", "").isdigit():
         return True
     words = k.split()
     return all(w in STOPLIST for w in words) or len(words) > 6
 
 def excluded(name: str) -> str | None:
-    """Curated non-concepts (aliases.json "not_concepts", exact key match only) → the recorded reason."""
     return _alias_table()["excluded"].get(base_key(name))
 
 def context_alias(surface: str) -> dict | None:
-    """Curated context-dependent alias for this surface (aliases.json "contextual_aliases"), e.g. "Higgs Field"
-    → Higgsfield only when its passage also names the company's products. None for every other surface."""
     return _alias_table()["contextual"].get(base_key(surface))
 
 def context_supports(spec: dict, text: str) -> bool:
-    """True if the passage contains one of the spec's required context words (whole tokens, case-insensitive).
-    Deliberately narrow lists: a generic word such as "AI" alone is never one of them."""
     tokens = set(re.findall(r"[a-z0-9][a-z0-9.\-]*[a-z0-9]|[a-z0-9]", unicodedata.normalize("NFKC", text).casefold()))
     return any(w.casefold() in tokens for w in spec["requires_any"])
 
 def contextual_pairs() -> set[frozenset]:
-    """Key pairs that are deliberately distinct concepts despite similar spelling (surface vs its target)."""
     return {frozenset((k, base_key(s["canonical"]))) for k, s in _alias_table()["contextual"].items()}
 
 def find_acronyms(text: str) -> dict[str, str]:
-    """Acronyms defined in the text as '<words> (<ACRONYM>)', where the words end right before the
-    parenthesis and their initials spell the acronym — either including connector words
-    ('Simultaneous Localization and Mapping (SLAM)') or skipping them ('proximal policy optimization (PPO)',
-    'return on investment (ROI)' / 'bill of materials (BOM)' both ways)."""
     out = {}
     for m in re.finditer(r"([A-Za-z][A-Za-z\- ]{2,80}?)\s*\(\s*([A-Z][A-Za-z]{1,7})\s*\)", text):
         words, acr = m.group(1).replace("-", " ").split(), m.group(2).lower()
@@ -168,9 +144,6 @@ def find_acronyms(text: str) -> dict[str, str]:
     return out
 
 def canonicalize(name: str, model_canonical: str | None = None, acronyms: dict | None = None) -> tuple[str, str]:
-    """→ (concept key, display name). Order: curated alias → guarded ASR alias → acronym defined in this Reel
-    → base key. ASR aliases apply only when the model's canonical name agrees (e.g. 'Cloud Code' heard,
-    model says 'Claude Code')."""
     t = _alias_table()
     k = base_key(name)
     if k in t["alias"]:
@@ -187,13 +160,11 @@ def canonicalize(name: str, model_canonical: str | None = None, acronyms: dict |
         return ek, expanded
     display = _fold(name)
     if "_" in display and " " not in display:
-        display = display.replace("_", " ")            # "Pi_harness" → "Pi harness" (same key either way)
+        display = display.replace("_", " ")
     return k, display
 
 def curated_type(display: str) -> str | None:
     return _alias_table()["types"].get(display)
 
 def curated_surfaces(display: str) -> list[str]:
-    """Literal spellings (canonical name + aliases, as written in aliases.json) of a curated concept, for exact
-    text matching. ASR aliases are excluded: they apply only with the model's agreement."""
     return list(_alias_table()["literal"].get(display, []))

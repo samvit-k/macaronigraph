@@ -1,33 +1,4 @@
-"""Phase 4A: incremental, recoverable graph synchronization (SQLite canonical records → Neo4j).
-
-SQLite (additive tables in pipeline.db; canonical tables are only read):
-  graph_extraction  cache of raw LLM proposals per (reel, content_hash, extractor_version) — the expensive
-                    step runs once; Neo4j can be rebuilt from it without the LLM
-  graph_state       what Neo4j holds per Reel (attempt, content hash, versions, graph hash, chunk ids, status)
-  graph_review      human decisions on assertions (accept → verified, reject → rejected); re-applied on every
-                    rewrite, so they survive Reels being refreshed or the graph being rebuilt
-
-Per Reel: unchanged (attempt + extractor + normalizer versions + graph hash) → no extraction, no rewrite;
-only its Chroma readiness is re-validated. Otherwise prepare → cached or new LLM proposal → grounding /
-normalization → ONE Neo4j transaction (store.write_reel_tx) → graph_state. Extraction failure → error
-recorded, the Reel's existing graph and state untouched, retried (MAX_EXTRACT_ATTEMPTS, then only with
-force). Neo4j offline → extraction still fills the cache.
-
-Readiness for GraphRAG: "ready" only while every chunk id is in the ACTIVE Chroma collection with the same
-content hash; otherwise "awaiting_index". Re-validated on every sync in both directions (ready ⇄
-awaiting_index), without the LLM and without rewriting the graph.
-
-Concurrency:
-  - one graph sync at a time (thread lock + flock, also across processes); a direct second request gets
-    SyncBusy. Queued manual requests are never dropped: one that meets a running sync is re-queued and
-    retried when that sync finishes (it wakes the loop — no polling), "failed" only after MAX_BUSY_RETRIES.
-  - human reviews vs sync: the document is built from one review snapshot whose digest is computed from those
-    very rows; the final graph_state write is a compare-and-set in one SQLite transaction that re-reads the
-    reviews. If they changed, the Reel is recorded "stale" and rewritten next sync. put_review writes in its
-    own transaction, so a review is never lost.
-  - extraction takes the indexer's write lock per Reel, so it never overlaps Chroma embedding (no deadlock:
-    the indexer never takes the graph lock). Automatic sync runs only while capture/processing are idle.
-"""
+"""Incremental, recoverable graph sync from SQLite canonical records to Neo4j."""
 from __future__ import annotations
 
 import fcntl
@@ -49,7 +20,7 @@ MAX_EXTRACT_ATTEMPTS = 3
 MAX_BUSY_RETRIES = 3
 POLL_S = 120
 STOP_JOIN_S = 60
-CHUNK_ID_RE = re.compile(r"^(?P<reel>.+):(?P<kind>[a-z_]+):(?P<seq>\d{3,})$")   # chunking.build_chunks format
+CHUNK_ID_RE = re.compile(r"^(?P<reel>.+):(?P<kind>[a-z_]+):(?P<seq>\d{3,})$")
 REVIEW_FIELDS = ("subject", "predicate", "object", "chunk_id", "decision", "note")
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS graph_extraction (
@@ -77,8 +48,6 @@ def extractor_version(model_id: str | None = None) -> str:
     return ex.extractor_version(model_id, embedder.resolve_revision(model_id))
 
 def accepted_versions(llm=None) -> tuple[str, list[str]]:
-    """→ (version new extractions are labelled with, [that version + compatible earlier versions whose
-    successful cached proposals are reused under their own label])."""
     ev = getattr(llm, "version", None) or extractor_version()
     if hasattr(llm, "compatible_versions"):
         compat = list(llm.compatible_versions)
@@ -92,19 +61,16 @@ def compatible_versions(model_id: str | None = None) -> list[str]:
     model_id = model_id or config.GRAPH_LLM
     try:
         return ex.compatible_versions(model_id, embedder.resolve_revision(model_id))
-    except Exception:  # noqa: BLE001 — model not available: nothing earlier can be vouched for
+    except Exception:  # noqa: BLE001
         return []
 
 def eligible() -> dict[str, dict]:
     return {r: e for r, e in indexer.eligible().items() if e["source"] in config.GRAPH_SOURCES}
 
-# ---------------------------------------------------------------- single-sync lock
-
 _sync_lock = threading.Lock()
 
 @contextmanager
 def exclusive():
-    """One graph sync at a time, in this process and across processes (CLI vs backend). Non-blocking."""
     if not _sync_lock.acquire(blocking=False):
         raise SyncBusy("a graph sync is already running in this process")
     fd = None
@@ -124,9 +90,7 @@ def exclusive():
                 fd.close()
         _sync_lock.release()
         if _requests:
-            _wake.set()                       # a queued request was waiting for this sync to finish
-
-# ---------------------------------------------------------------- SQLite helpers
+            _wake.set()
 
 def states() -> dict[str, dict]:
     ensure_schema()
@@ -155,14 +119,10 @@ def _review_rows(con, chunk_ids: list[str]) -> list[dict]:
             ORDER BY subject, predicate, object, chunk_id""", chunk_ids)]
 
 def _digest_rows(rows: list[dict]) -> str:
-    """Deterministic digest of review rows (same fields, same order everywhere)."""
     key = sorted((tuple(r[f] for f in REVIEW_FIELDS) for r in rows), key=lambda t: t[:4])
     return hashlib.sha256(json.dumps(key).encode()).hexdigest()
 
 def _commit_state_if_reviews_unchanged(rid: str, review_chunk_ids: list[str], digest: str, **f) -> bool:
-    """Compare-and-set: record the synced state only if the Reel's reviews are what the written document used.
-    Otherwise record it as stale (no graph hash) so the next sync rewrites it. One SQLite transaction, so it is
-    serialized with put_review (also across processes). → True if recorded as synced"""
     with jobs.tx() as con:
         if _digest_rows(_review_rows(con, review_chunk_ids)) == digest:
             _upsert_state(con, rid, **f)
@@ -172,13 +132,11 @@ def _commit_state_if_reviews_unchanged(rid: str, review_chunk_ids: list[str], di
         return False
 
 def _set_status(rid: str, expected: str, status: str) -> bool:
-    """Readiness transition only if the row is still what the sync saw (a concurrent review's stale marker wins)."""
     with jobs.tx() as con:
         return con.execute("""UPDATE graph_state SET status=?, synced_at=? WHERE reel_id=? AND status=?
                               AND graph_hash IS NOT NULL""", (status, db.utc_now(), rid, expected)).rowcount == 1
 
 def _mark_error(rid: str, prev: dict | None, msg: str) -> None:
-    """Record an error WITHOUT touching what the graph holds: previous state fields are kept as they are."""
     if prev:
         with jobs.tx() as con:
             con.execute("UPDATE graph_state SET status='error', error=?, synced_at=? WHERE reel_id=?", (msg, db.utc_now(), rid))
@@ -197,8 +155,6 @@ def cached(rid: str, content_hash: str, ev: str) -> dict | None:
     return dict(r) if r else None
 
 def usable_cache(rid: str, content_hash: str, versions: list[str]) -> dict | None:
-    """The successful cached proposal for this content, from the current version or a compatible earlier one
-    (first in `versions` order). The row keeps its own extractor_version."""
     for v in versions:
         c = cached(rid, content_hash, v)
         if c is not None and c["status"] == "ok":
@@ -217,15 +173,13 @@ def _put_cache(rid: str, content_hash: str, ev: str, aid: int, status: str, raw=
                      json.dumps(stats or {}), db.utc_now()))
 
 def reviews_for(chunk_ids: list[str]) -> tuple[dict[tuple, dict], str]:
-    """ONE query → (reviews keyed by (subject, predicate, object, chunk_id), digest of exactly those rows)."""
     ensure_schema()
     with jobs.connect() as con:
         rows = _review_rows(con, chunk_ids)
     return {(r["subject"], r["predicate"], r["object"], r["chunk_id"]): r for r in rows}, _digest_rows(rows)
 
 def owner_of(chunk_id: str) -> str | None:
-    """The Reel that owns a chunk: the graph_state row whose recorded chunk ids contain it; otherwise parsed
-    from the documented `{reel_id}:{kind}:{seq}` format (from the right, so reel ids are never cut short)."""
+    """Parsed from the right of `{reel_id}:{kind}:{seq}` when unrecorded, so Reel ids are never cut short."""
     ensure_schema()
     with jobs.connect() as con:
         for r in con.execute("SELECT reel_id, chunk_ids FROM graph_state WHERE chunk_ids LIKE ?",
@@ -236,8 +190,6 @@ def owner_of(chunk_id: str) -> str | None:
     return m.group("reel") if m else None
 
 def put_review(subject: str, predicate: str, obj: str, chunk_id: str, decision: str, note: str | None) -> str:
-    """Store a human decision and mark the owning Reel stale, in one transaction; the next sync re-applies it
-    (no LLM). → owning reel_id"""
     if decision not in ("accept", "reject"):
         raise ValueError("decision must be accept or reject")
     rid = owner_of(chunk_id)
@@ -252,8 +204,6 @@ def put_review(subject: str, predicate: str, obj: str, chunk_id: str, decision: 
         con.execute("UPDATE graph_state SET graph_hash=NULL, status='stale' WHERE reel_id=?", (rid,))
     return rid
 
-# ---------------------------------------------------------------- documents
-
 def build_doc(record: dict, source: str, prepared: dict, grounded: dict, ev: str, reviews: dict,
               partial: bool = False) -> dict:
     chunks = chunking.build_chunks(record, source)
@@ -266,7 +216,7 @@ def build_doc(record: dict, source: str, prepared: dict, grounded: dict, ev: str
             "extractor_version": ev, "normalizer_version": grounded["normalizer_version"],
             "chunker_version": chunking.CHUNKER_VERSION, "hashtags": md.get("hashtags") or []}
     if partial:
-        reel["extraction_partial"] = True     # model output truncated: only fully emitted objects were kept
+        reel["extraction_partial"] = True
     passages = []
     for c in chunks:
         m = c["metadata"]
@@ -288,8 +238,6 @@ def build_doc(record: dict, source: str, prepared: dict, grounded: dict, ev: str
     return doc
 
 def chroma_ready(chunk_ids: list[str], content_hash: str) -> bool:
-    """Every chunk in the ACTIVE Chroma collection with the same content hash (read-only check). Any Chroma
-    problem (no active index, unavailable) → False: the Reel waits, nothing is blocked."""
     try:
         name = indexer.active_collection()
         if not name or not chunk_ids:
@@ -300,11 +248,8 @@ def chroma_ready(chunk_ids: list[str], content_hash: str) -> bool:
     except Exception:  # noqa: BLE001
         return False
 
-# ---------------------------------------------------------------- sync
-
 def sync(store=None, llm=None, allow_extract: bool = True, force: bool = False, should_continue=None,
          only: list[str] | None = None) -> dict:
-    """One graph synchronization (exclusive). Raises SyncBusy if another sync is running."""
     with exclusive():
         return _sync(store, llm, allow_extract, force, should_continue, only)
 
@@ -347,7 +292,7 @@ def _sync(store, llm, allow_extract, force, should_continue, only) -> dict:
         rows = states()
     own_llm = llm is None
 
-    if st["online"] and not only:                               # Reels that are no longer eligible
+    if st["online"] and not only:
         for rid in sorted((set(hashes) | set(rows)) - set(elig)):
             try:
                 if rid in hashes:
@@ -368,14 +313,13 @@ def _sync(store, llm, allow_extract, force, should_continue, only) -> dict:
                          and s["canonical_attempt_id"] == e["aid"] and s["extractor_version"] in accepted
                          and s["normalizer_version"] == nv)
             if unchanged and (not st["online"] or hashes.get(rid) == s["graph_hash"]):
-                # fast path: no extraction, no rewrite — only re-validate Chroma readiness (both directions)
                 st["skipped"] += 1
                 with timed("chroma_s"):
                     ready_now = chroma_ready(json.loads(s["chunk_ids"] or "[]"), s["content_hash"])
                 want = "ready" if ready_now else "awaiting_index"
                 if want != s["status"]:
                     if not st["online"]:
-                        st[s["status"]] += 1                     # cannot update Neo4j now; retried next sync
+                        st[s["status"]] += 1
                         continue
                     try:
                         store.set_ready(rid, ready_now)
@@ -383,7 +327,7 @@ def _sync(store, llm, allow_extract, force, should_continue, only) -> dict:
                         offline(err)
                         st[s["status"]] += 1
                         continue
-                    if not _set_status(rid, s["status"], want):  # a review made it stale meanwhile
+                    if not _set_status(rid, s["status"], want):
                         st["stale"] += 1
                         continue
                     st["promoted" if ready_now else "demoted"] += 1
@@ -400,8 +344,6 @@ def _sync(store, llm, allow_extract, force, should_continue, only) -> dict:
                 with timed("sqlite_s"):
                     failed = cached(rid, prepared["content_hash"], ev)
                 if failed is not None and not force:
-                    # greedy decoding: an ExtractionError (bad/truncated output) reproduces exactly on the same
-                    # input, so it is not retried automatically; other errors (e.g. model load) are, a few times
                     deterministic = (failed["error"] or "").startswith("ExtractionError")
                     if deterministic or failed["attempts"] >= MAX_EXTRACT_ATTEMPTS:
                         _mark_error(rid, s, f"extraction failed {failed['attempts']}× ({failed['error']}); "
@@ -413,13 +355,12 @@ def _sync(store, llm, allow_extract, force, should_continue, only) -> dict:
                     st["deferred"] += 1
                     continue
                 if llm is None:
-                    llm = models.shared_llm(config.GRAPH_LLM)    # the one in-process copy of the extraction model
+                    llm = models.shared_llm(config.GRAPH_LLM)
                 try:
-                    # never concurrently with Chroma embedding (in-process write lock) nor with any other model
-                    # work in this or another process (heavy lock: CLI sync vs backend)
+                    # Never concurrent with Chroma embedding (writer lock) or other model work in any process (heavy lock).
                     with indexer._write_lock, models.heavy("graph extraction"), timed("llm_s"):
                         raw, stats = ex.propose(llm, prepared)
-                except Exception as err:  # noqa: BLE001 — record; the previous graph stays untouched
+                except Exception as err:  # noqa: BLE001
                     msg = f"{type(err).__name__}: {err}"
                     _put_cache(rid, prepared["content_hash"], ev, e["aid"], "error", error=msg,
                                stats={"attempts": getattr(err, "attempts", []), "recovery": ex.RECOVERY_VERSION})
@@ -439,7 +380,7 @@ def _sync(store, llm, allow_extract, force, should_continue, only) -> dict:
                 grounded = ex.ground(raw, prepared)
                 all_ids = [x["id"] for x in chunking.build_chunks(record, e["source"])]
             with timed("sqlite_s"):
-                reviews, digest = reviews_for(all_ids)          # one snapshot: the doc and the digest agree
+                reviews, digest = reviews_for(all_ids)
             doc = build_doc(record, e["source"], prepared, grounded, used_ev, reviews,
                             partial=bool(used_stats.get("partial")))
             with timed("chroma_s"):
@@ -447,7 +388,7 @@ def _sync(store, llm, allow_extract, force, should_continue, only) -> dict:
             doc["retrieval_ready"] = ready
             try:
                 with timed("neo4j_s"):
-                    if hashes.get(rid) != doc["graph_hash"]:      # equal: committed before a crash; just record it
+                    if hashes.get(rid) != doc["graph_hash"]:
                         store.write_reel(doc)
                         st["written"] += 1
                     else:
@@ -455,7 +396,7 @@ def _sync(store, llm, allow_extract, force, should_continue, only) -> dict:
             except GraphOffline as err:
                 offline(err)
                 continue
-            except Exception as err:  # noqa: BLE001 — transaction rolled back; previous graph intact
+            except Exception as err:  # noqa: BLE001
                 _mark_error(rid, s, f"graph write: {type(err).__name__}: {err}")
                 st["write_errors"] += 1
                 continue
@@ -479,18 +420,15 @@ def _sync(store, llm, allow_extract, force, should_continue, only) -> dict:
     jobs.set_meta(K_LAST, json.dumps({"at": db.utc_now(), **st}))
     return st
 
-# ---------------------------------------------------------------- background thread (idle-gated)
-
 _thread: threading.Thread | None = None
 _stop = threading.Event()
 _wake = threading.Event()
 _requests: list[dict] = []
-_request_log: dict[int, dict] = {}            # id → {status: queued|running|done|failed, ...}
+_request_log: dict[int, dict] = {}
 _ids = itertools.count(1)
 _state = {"running": False, "busy": None, "last_error": None}
 
 def _run(**kw) -> dict | None:
-    """Run one sync. Raises SyncBusy (the caller decides whether to retry); other errors are recorded."""
     _state["running"] = True
     try:
         out = sync(**kw)
@@ -521,7 +459,7 @@ def _process_request(req: dict) -> None:
             rec.update(status="failed", reason=f"{e} ({req['busy_retries']} attempts)", at=db.utc_now())
         else:
             rec.update(status="queued", reason=str(e))
-            _requests.insert(0, req)          # retried when the running sync finishes (it wakes the loop)
+            _requests.insert(0, req)
         return
     rec.update(status="done" if out is not None else "failed", result=out,
                reason=None if out is not None else _state["last_error"], at=db.utc_now())
@@ -545,7 +483,7 @@ def _loop() -> None:
             try:
                 _run(should_continue=_idle)
             except SyncBusy as e:
-                _state["busy"] = str(e)       # a manual sync is running; the next idle round catches up
+                _state["busy"] = str(e)
 
 def start() -> None:
     global _thread
@@ -566,9 +504,6 @@ def request_status(request_id: int) -> dict | None:
     return _request_log.get(request_id)
 
 def request_sync(force: bool = False, wait: bool = False) -> dict:
-    """Manual sync: always writes cached extractions; new LLM extraction during capture only with force.
-    wait=True runs it now — or reports {"busy": ...} if a sync is already running (never two at once).
-    Otherwise it is queued for the background thread and tracked by id (never silently dropped)."""
     if wait or _thread is None or not _thread.is_alive():
         try:
             return sync(allow_extract=force or indexer.busy_reason() is None, force=force)

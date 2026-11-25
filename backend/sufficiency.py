@@ -1,25 +1,4 @@
-"""Phase 4C evidence-sufficiency signals (experimental; deterministic, no model).
-
-signals(question, retrieval) →
-  best_sim      highest vector similarity of any passage in the pack (None if no vector-ranked passage);
-  anchors       the question's content words (light stemming) — not stopwords, not question/meta words;
-  missing       anchors that occur in no passage of the pack;
-  coverage      share of anchors found in the pack.
-These are SIGNALS, not proof: GraphRAG can retrieve relevant text with low similarity or different wording, and
-a word can occur in a passage that does not answer the question. answer.generate() uses them only as configured
-(answer.DEFAULTS["sufficiency"]):
-  "off"          no effect;
-  "soft"         missing anchors are listed in the prompt as a warning (the model still decides);
-  "hard_sim"     abstain without generating if best_sim < τ_sim;
-  "hard_anchor"  abstain without generating if coverage < τ_cov;
-  "soft+hard_sim" both;
-  "hard_sim_anchor"  abstain without generating only if BOTH best_sim < τ_sim AND at least one of the question's
-                 terms occurs in no passage (low similarity alone is not enough: entity lookups answered through the
-                 graph or lexical channel can have low similarity — dev item "What is <tool>?" had 0.45).
-Hard gates are never applied to follow-up turns (answer.generate(follow_up=True)): their signals would be computed on
-a question whose meaning depends on the conversation.
-Thresholds are chosen on development data only (fixtures/rag_answer_config.json).
-"""
+"""Evidence-sufficiency signals used by the answer gate (deterministic, no model)."""
 from __future__ import annotations
 
 import re
@@ -41,7 +20,6 @@ def _stem(w: str) -> str:
     return w[:5] if w.isalpha() and len(w) > 5 else w
 
 def anchor_words(question: str) -> dict[str, str]:
-    """stem → the question's own word (first occurrence)."""
     words = re.findall(r"[a-z0-9][a-z0-9+#.\-]*[a-z0-9+#]|[a-z0-9]", question.lower())
     out: dict[str, str] = {}
     for w in words:
@@ -66,7 +44,6 @@ def signals(question: str, retrieval: dict) -> dict:
             "coverage": round(1 - len(missing) / len(anc), 3) if anc else 1.0}
 
 def decide(mode: str, sig: dict, tau_sim: float = TAU_SIM, tau_cov: float = TAU_COV) -> str | None:
-    """→ a reason to abstain without generating, or None."""
     if mode == "hard_sim_anchor":
         if sig["best_sim"] is not None and sig["best_sim"] < tau_sim and sig["missing"]:
             return (f"best vector similarity {sig['best_sim']:.2f} < {tau_sim} and no passage contains: "
