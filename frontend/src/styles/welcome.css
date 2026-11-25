@@ -1,0 +1,49 @@
+/* MacaroniGraph welcome page. Hero composition inspired by the BioOKF landing page (centred headline with one
+   coloured phrase, faint dot grid fading out, one blurred glow, primary + ghost buttons); colours, type scale and
+   copy are MacaroniGraph's own (tokens.css). */
+*, *::before, *::after { box-sizing: border-box; }
+html, body, #root { min-height: 100%; }
+body { margin: 0; font-family: var(--sans); color: var(--text); background: var(--bg); -webkit-font-smoothing: antialiased; }
+code { font-family: var(--mono); font-size: 0.9em; background: var(--bg-sunken); padding: 1px 5px; border-radius: var(--r-xs); }
+
+.wl { position: relative; min-height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+.wl-grid { position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  background-image: radial-gradient(circle, rgba(17, 19, 24, 0.075) 1px, transparent 1.3px); background-size: 22px 22px; }
+.wl-glow { position: absolute; left: 50%; top: -120px; width: 780px; height: 520px; transform: translateX(-50%); z-index: 0; pointer-events: none;
+  background: radial-gradient(ellipse 58% 66% at 40% 44%, rgba(91, 85, 214, 0.16), transparent 62%),
+              radial-gradient(ellipse 52% 60% at 64% 40%, rgba(227, 163, 59, 0.12), transparent 64%);
+  filter: blur(12px); }
+
+.wl-nav { position: relative; z-index: 1; display: flex; justify-content: space-between; align-items: center; height: 60px;
+  max-width: 1080px; width: 100%; margin: 0 auto; padding: 0 24px; }
+.wl-brand { display: inline-flex; align-items: center; gap: 9px; font-weight: 650; font-size: 15.5px; letter-spacing: -0.015em; }
+.wl-brand img { width: 24px; height: 24px; border-radius: 6px; }
+.wl-navlink { font-size: 13.5px; color: var(--muted); text-decoration: none; }
+.wl-navlink:hover { color: var(--accent-ink); }
+
+.wl-hero { position: relative; z-index: 1; flex: 1; text-align: center; max-width: 880px; margin: 0 auto; padding: 60px 24px 40px; }
+.wl-hero h1 { margin: 0 auto; font-size: clamp(34px, 5.2vw, 56px); font-weight: 700; letter-spacing: -0.035em; line-height: 1.06; max-width: 820px; text-wrap: balance; }
+.wl-hero h1 .accent { color: var(--accent); }
+.wl-sub { margin: 20px auto 0; max-width: 620px; font-size: 17px; line-height: 1.58; color: var(--muted); }
+.wl-cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-top: 32px; }
+.wl-btn { display: inline-flex; align-items: center; padding: 11px 20px; border-radius: var(--r-sm); font-size: 14px; font-weight: 600;
+  letter-spacing: -0.01em; text-decoration: none; border: 1px solid transparent; transition: background 0.12s var(--ease), transform 0.12s var(--ease); }
+.wl-btn:hover { transform: translateY(-1px); }
+.wl-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.wl-btn.primary:hover { background: var(--accent-ink); border-color: var(--accent-ink); }
+.wl-btn.ghost { background: var(--bg-elev); border-color: #d9dbe0; color: var(--text); }
+.wl-btn.ghost:hover { background: var(--bg-sunken); }
+.wl-fine { margin: 16px auto 0; max-width: 560px; font-size: 13px; color: var(--faint); line-height: 1.5; }
+.wl-warn { color: var(--warn); }
+
+.wl-steps { list-style: none; margin: 44px auto 0; padding: 0; max-width: 720px; text-align: left; display: grid; gap: 0;
+  border: 1px solid var(--hair); border-radius: var(--r-lg); background: rgba(255, 255, 255, 0.85); }
+.wl-steps li { display: flex; gap: 14px; padding: 16px 18px; }
+.wl-steps li + li { border-top: 1px solid var(--hair-2); }
+.wl-num { flex: none; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 12.5px; font-weight: 700;
+  color: var(--accent-ink); background: var(--accent-soft); }
+.wl-steps h2 { margin: 1px 0 3px; font-size: 14.5px; font-weight: 650; }
+.wl-steps p { margin: 0; font-size: 13.5px; line-height: 1.55; color: var(--muted); }
+
+.wl-foot { position: relative; z-index: 1; text-align: center; padding: 12px 16px 24px; font-size: 12.5px; color: var(--faint); }
+@media (prefers-reduced-motion: reduce) { .wl-btn { transition: none; } .wl-btn:hover { transform: none; } }
