@@ -1,0 +1,58 @@
+{
+ "params": {
+  "vector_candidates": 40,
+  "seed_passages": 8,
+  "min_specificity": 0.75,
+  "co_mention": true,
+  "relations": true,
+  "rel_abs": 0.35,
+  "rel_frac": 0.6,
+  "per_concept_reels": 3,
+  "boost_weight": 0.8,
+  "w_vector": 1.0,
+  "w_co_mention": 1.0,
+  "w_relation": 0.6,
+  "rrf_k": 60,
+  "protect_top": 2,
+  "reserve_graph": 2,
+  "max_sources": 12,
+  "per_reel": 3,
+  "context_chars": 9000,
+  "listing_max": 30,
+  "near_duplicate": 0.8
+ },
+ "tuned_on": "dev",
+ "dataset_sha256": "0c2950f727744fead718ed0a13516f850c981a7fb9425c02c3032705c1b2bef4",
+ "grid": {
+  "min_specificity": [
+   0.55,
+   0.65,
+   0.75
+  ],
+  "rel_frac": [
+   0.5,
+   0.6,
+   0.7
+  ],
+  "protect_top": [
+   2,
+   3
+  ],
+  "w_co_mention": [
+   0.4,
+   0.6,
+   1.0
+  ],
+  "reserve_graph": [
+   2,
+   4
+  ]
+ },
+ "n_trials": 108,
+ "dev_objective": [
+  1.0,
+  1.0,
+  0.569
+ ],
+ "frozen_at": "2026-11-24"
+}
