@@ -39,8 +39,8 @@ fixtures/rag_answer_config_phase4c.json
 # Unused local development artefacts
 extension/popup.html
 extension/popup.js
-extension/ui-next/manifest.previous.json
-extension/ui-next/manifest.next.json
+extension/ui/manifest.previous.json
+extension/ui/manifest.next.json
 
 # Editor, OS and tool state
 .claude/

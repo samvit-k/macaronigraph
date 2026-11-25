@@ -34,7 +34,7 @@ def test_allowlist_covers_every_file_the_manifest_and_popup_reference():
     m = json.loads((root / "manifest.json").read_text())
     refs = {m["background"]["service_worker"], m["action"]["default_popup"], *m["icons"].values()}
     popup = (root / m["action"]["default_popup"]).read_text()
-    refs |= {f"ui-next/{x}" for x in re.findall(r'(?:src|href)="([^":]+)"', popup)}
+    refs |= {f"ui/{x}" for x in re.findall(r'(?:src|href)="([^":]+)"', popup)}
     bg = (root / "background.js").read_text()
     refs |= set(re.findall(r'["\']([a-z]+\.(?:js|html))["\']', bg))
     assert refs <= set(app_mod.EXTENSION_FILES), refs - set(app_mod.EXTENSION_FILES)

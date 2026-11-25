@@ -410,8 +410,8 @@ EXTENSION_DIR = Path(__file__).resolve().parent.parent / "extension"
 # alternate manifests, dotfiles or development artefacts — can ever end up in the download.
 EXTENSION_FILES = (
     "manifest.json", "background.js", "content.js", "crop.js", "offscreen.html", "offscreen.js",
-    "ui-next/popup.html", "ui-next/popup.css", "ui-next/popup.js", "ui-next/logo.svg",
-    "ui-next/icons/icon16.png", "ui-next/icons/icon32.png", "ui-next/icons/icon48.png", "ui-next/icons/icon128.png",
+    "ui/popup.html", "ui/popup.css", "ui/popup.js", "ui/logo.svg",
+    "ui/icons/icon16.png", "ui/icons/icon32.png", "ui/icons/icon48.png", "ui/icons/icon128.png",
 )
 
 
