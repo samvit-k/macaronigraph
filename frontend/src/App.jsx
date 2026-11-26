@@ -142,11 +142,11 @@ export default function App() {
                 ? { kind: 'reel', id: selection.citation?.reel_id } : selection} highlight={highlight}
                 onSelect={onSelect} onToggleExpand={onToggleExpand} />
               <Legend />
-              <div className="stage-hint">
-                {Object.keys(model.expanded).length > 0
-                  ? <button type="button" className="link-btn" onClick={() => { graph.resetToOverview(); setSelection(null) }}>Back to Overview</button>
-                  : 'Reels and the concepts they share · double-click a node to expand'}
-              </div>
+              {Object.keys(model.expanded).length > 0 && (
+                <div className="stage-hint">
+                  <button type="button" className="link-btn" onClick={() => { graph.resetToOverview(); setSelection(null) }}>Back to Overview</button>
+                </div>
+              )}
             </>
           )}
           <StageState graph={graph} />
