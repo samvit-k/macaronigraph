@@ -27,7 +27,7 @@ export default function TopBar({ model, graphStatus, scope, onScope, status, the
       <div className="tb-actions">
         {status && (
           <span className={`pill status-${status.tone}`} title={status.detail} data-testid="status-chip">
-            <span className="status-dot" aria-hidden="true" />{status.text}
+            <span className="status-dot" aria-hidden="true" /><span className="pill-text">{status.text}</span>
           </span>
         )}
         <SearchBox query={query} onQuery={onQuery} onPick={onPick} disabled={offline} />
