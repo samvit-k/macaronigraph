@@ -44,7 +44,9 @@ export default function Welcome({ hosted = false }) {
         </p>
         <div className="wl-cta">
           <a className="wl-btn primary" href={hosted ? RELEASE_ZIP : '/welcome/extension.zip'} download>Download Extension (.zip)</a>
-          <a className="wl-btn ghost" href={hosted ? LOCAL_WORKSPACE : '/workspace/'}>Open Workspace</a>
+          {hosted
+            ? <a className="wl-btn ghost" href={LOCAL_WORKSPACE} target="_blank" rel="noopener noreferrer">Open Workspace</a>
+            : <a className="wl-btn ghost" href="/workspace/">Open Workspace</a>}
         </div>
         <p className="wl-fine">
           Not on the Chrome Web Store. The extension works only with {hosted ? 'the' : 'this'} local backend, which needs macOS on Apple Silicon.
