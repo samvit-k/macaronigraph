@@ -364,7 +364,7 @@ if WORKSPACE_DIR.is_dir():
 
 @app.get("/", response_class=HTMLResponse)
 def index():
-    return """<!doctype html><title>MacaroniGraph — worker tab</title>
+    return """<!doctype html><title>MacaroniGraph — worker tab</title><link rel="icon" type="image/svg+xml" href="/workspace/logo.svg">
 <body style="font:16px system-ui;max-width:640px;margin:40px auto">
 <h1>MacaroniGraph worker tab</h1>
 <p>This tab is the <b>worker tab</b>. Click the extension icon, choose a source, then <b>Start Processing</b>.

@@ -1,3 +1,5 @@
+<img src="frontend/public/logo.svg" width="72" height="72" alt="MacaroniGraph logo">
+
 # MacaroniGraph
 
 **A knowledge graph of your saved Instagram Reels.**
