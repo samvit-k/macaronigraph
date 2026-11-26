@@ -3,7 +3,23 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../api/client.js'
 import { collapse as collapseModel, conceptId, emptyModel, mergeNeighborhood, mergeOverview, reelId } from '../graph/toElements.js'
 
+const SCOPE_KEY = 'macaronigraph.reelScope'
+
+export function overviewParams(scope) {
+  return scope ? { reel_limit: scope, within: 'true', limit_concepts: 10000 } : {}
+}
+
+function savedScope() {
+  try {
+    const n = Number(window.localStorage.getItem(SCOPE_KEY))
+    return Number.isInteger(n) && n > 0 ? n : null
+  } catch {
+    return null
+  }
+}
+
 export function useGraph({ client = api } = {}) {
+  const [scope, setScopeState] = useState(savedScope)
   const [state, setState] = useState({ model: emptyModel(), base: emptyModel(), status: 'loading', error: null })
   const gen = useRef(0)
   const inflight = useRef(new Map())
@@ -15,7 +31,7 @@ export function useGraph({ client = api } = {}) {
     details.current.clear()
     setState((s) => ({ ...s, status: 'loading', error: null }))
     try {
-      const data = await client.overview()
+      const data = await client.overview(overviewParams(scope))
       if (g !== gen.current) return
       const base = mergeOverview(emptyModel(), data)
       setState({ model: base, base, status: 'ready', error: null })
@@ -23,7 +39,7 @@ export function useGraph({ client = api } = {}) {
       if (g !== gen.current) return
       setState((s) => ({ ...s, status: e.status === 503 ? 'offline' : 'error', error: e.message }))
     }
-  }, [client])
+  }, [client, scope])
 
   useEffect(() => { load() }, [load])
 
@@ -54,5 +70,14 @@ export function useGraph({ client = api } = {}) {
 
   const resetToOverview = useCallback(() => setState((s) => ({ ...s, model: { ...s.base, labels: s.model.labels, nextLabel: s.model.nextLabel } })), [])
 
-  return { ...state, reload: load, fetchDetail, expand, collapse, resetToOverview }
+  const setScope = useCallback((n) => {
+    const next = Number.isInteger(n) && n > 0 ? n : null
+    try {
+      if (next) window.localStorage.setItem(SCOPE_KEY, String(next))
+      else window.localStorage.removeItem(SCOPE_KEY)
+    } catch { /* storage unavailable: the choice lasts for this page only */ }
+    setScopeState(next)
+  }, [])
+
+  return { ...state, scope, setScope, reload: load, fetchDetail, expand, collapse, resetToOverview }
 }

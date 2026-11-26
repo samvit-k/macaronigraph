@@ -251,10 +251,10 @@ def _view(fn, *args, **kw):
         raise HTTPException(400, str(e))
 
 @app.get("/api/graph/overview")
-def graph_overview(min_reels: int = Query(2, ge=1, le=50), limit_concepts: int = Query(150, ge=1, le=1000),
-                   reel_offset: int = Query(0, ge=0), reel_limit: int = Query(200, ge=1, le=1000)):
+def graph_overview(min_reels: int = Query(2, ge=1, le=50), limit_concepts: int = Query(150, ge=1, le=10000),
+                   reel_offset: int = Query(0, ge=0), reel_limit: int = Query(200, ge=1, le=10000), within: bool = False):
     return _view("overview", min_reels=min_reels, limit_concepts=limit_concepts, reel_offset=reel_offset,
-                 reel_limit=reel_limit)
+                 reel_limit=reel_limit, within=within)
 
 @app.get("/api/graph/neighborhood")
 def graph_neighborhood(kind: str = Query(..., pattern="^(reel|concept)$"), id: str = Query(..., min_length=1),

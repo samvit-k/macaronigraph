@@ -46,6 +46,14 @@ def test_overview_pages_reels(seeded):
     o = view.overview(seeded, reel_offset=1, reel_limit=1)
     assert [r["reel_id"] for r in o["reels"]] == ["R2"] and o["totals"]["reels_shown"] == 1
 
+def test_overview_within_shows_every_concept_of_the_chosen_reels(seeded):
+    o = view.overview(seeded, reel_limit=1, within=True, limit_concepts=1000)
+    assert [r["reel_id"] for r in o["reels"]] == ["R1"] and o["totals"]["within"] is True
+    keys = {c["key"]: c for c in o["concepts"]}
+    assert keys["cuda"]["bridge"] and keys["cuda"]["n_reels"] == 2 and not keys["gpu"]["bridge"]
+    assert "triton" not in keys
+    assert {(m["reel_id"], m["concept_key"]) for m in o["mentions"]} == {("R1", "cuda"), ("R1", "gpu")}
+
 def test_reel_neighborhood_has_all_its_concepts_with_excerpts(seeded):
     n = view.neighborhood(seeded, "reel", "R2")
     assert n["found"] and {c["key"] for c in n["concepts"]} == {"cuda", "triton"}

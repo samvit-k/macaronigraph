@@ -78,7 +78,7 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round
 .node-sq { width: 11px; height: 11px; border-radius: 3px; display: inline-block; flex: none; background: var(--c-reel); border: 0.85px solid rgba(45, 42, 122, 0.6); }
 .node-sq.sm { width: 10px; height: 10px; }
 
-.filter, .history-wrap { position: relative; }
+.filter, .history-wrap, .scope { position: relative; }
 .backdrop { position: fixed; inset: 0; z-index: 25; }
 .popover { position: absolute; z-index: 30; background: var(--bg-elev); border: 1px solid var(--hair); border-radius: var(--r-lg); box-shadow: var(--shadow-md); }
 .filter-panel { top: 42px; right: 0; width: min(330px, 90vw); padding: 10px 10px 12px; }
@@ -92,6 +92,16 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round
 .pop-row .count { color: var(--faint); font-variant-numeric: tabular-nums; font-size: 12.5px; }
 .pop-sep { height: 1px; background: var(--hair-2); margin: 8px 4px; }
 .filter-panel .link-btn { margin: 8px 6px 0; font-size: 13px; }
+.scope { flex: none; }
+.scope-btn { border: 0; background: none; font-family: inherit; padding: 3px 6px; margin: 0 -6px; border-radius: var(--r-sm); cursor: pointer; }
+.scope-btn:hover, .scope-btn[aria-expanded="true"] { background: var(--hover); color: var(--muted); }
+.scope-btn:disabled { cursor: default; background: none; color: var(--faint); }
+.scope-panel { top: 30px; left: -6px; width: min(320px, 90vw); padding: 10px 10px 12px; }
+.scope-custom { display: flex; gap: 8px; margin: 0 6px; }
+.scope-custom input { flex: 1; min-width: 0; height: 30px; padding: 0 10px; border: 1px solid var(--hair); border-radius: var(--r-md);
+  background: var(--bg-elev); color: var(--text); font: inherit; font-size: 13px; }
+.scope-custom input:focus { outline: none; border-color: var(--accent); }
+.scope-note { margin: 8px 6px 0; font-size: 12px; color: var(--faint); line-height: 1.4; }
 .line-swatch { width: 26px; height: 8px; flex: none; }
 
 .stage { position: relative; min-height: 0; min-width: 0; overflow: hidden; background: var(--bg-stage); }

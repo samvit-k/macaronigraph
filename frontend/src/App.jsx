@@ -133,7 +133,8 @@ export default function App() {
   return (
     <div className={`app${chatOpen ? ' as-open' : ''}${narrow ? ' narrow' : ''}`}>
       <main className="main">
-        <TopBar model={model} graphStatus={graph.status} status={status} query={query} onQuery={setQuery} onPick={onPick}
+        <TopBar model={model} graphStatus={graph.status} scope={graph.scope} onScope={(n) => { setSelection(null); graph.setScope(n) }}
+          status={status} query={query} onQuery={setQuery} onPick={onPick}
           filters={filters} onFilters={setFilters} chatOpen={chatOpen} onToggleChat={() => setChatOpen((v) => !v)} />
         <div className="stage">
           {graph.status === 'ready' && Object.keys(model.reels).length > 0 && (

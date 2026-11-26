@@ -35,7 +35,8 @@ def _reel_fields() -> str:
             "r.saved_at AS saved_at")
 
 def overview(store: Neo4jStore, min_reels: int = 2, limit_concepts: int = 150, reel_offset: int = 0,
-             reel_limit: int = 200) -> dict:
+             reel_limit: int = 200, within: bool = False) -> dict:
+    """within=True: every concept the shown Reels mention (most shared first) instead of library-wide bridge concepts."""
     totals = {
         "reels": store.run("MATCH (r:Reel) RETURN count(r) AS n")[0]["n"],
         "concepts": store.run("MATCH (c:Concept) RETURN count(c) AS n")[0]["n"],
@@ -49,15 +50,24 @@ def overview(store: Neo4jStore, min_reels: int = 2, limit_concepts: int = 150, r
         RETURN {_reel_fields()}, concepts
         ORDER BY r.saved_at DESC, r.reel_id SKIP $off LIMIT $lim""", off=reel_offset, lim=reel_limit)
     rids = [r["reel_id"] for r in reels]
-    bridge = store.run("""
-        MATCH (c:Concept)<-[:MENTIONS]-(:Passage)<-[:HAS_PASSAGE]-(r:Reel)
-        WITH c, count(DISTINCT r) AS n_reels WHERE n_reels >= $m
-        RETURN c.key AS key, c.name AS name, c.type AS type, coalesce(c.aliases, []) AS aliases, n_reels
-        ORDER BY n_reels DESC, name LIMIT $lim""", m=min_reels, lim=limit_concepts)
+    if within:
+        bridge = store.run("""
+            MATCH (r:Reel)-[:HAS_PASSAGE]->(:Passage)-[:MENTIONS]->(c:Concept) WHERE r.reel_id IN $rids
+            WITH DISTINCT c
+            MATCH (c)<-[:MENTIONS]-(:Passage)<-[:HAS_PASSAGE]-(o:Reel)
+            WITH c, count(DISTINCT o) AS n_reels
+            RETURN c.key AS key, c.name AS name, c.type AS type, coalesce(c.aliases, []) AS aliases, n_reels
+            ORDER BY n_reels DESC, name LIMIT $lim""", rids=rids, lim=limit_concepts)
+    else:
+        bridge = store.run("""
+            MATCH (c:Concept)<-[:MENTIONS]-(:Passage)<-[:HAS_PASSAGE]-(r:Reel)
+            WITH c, count(DISTINCT r) AS n_reels WHERE n_reels >= $m
+            RETURN c.key AS key, c.name AS name, c.type AS type, coalesce(c.aliases, []) AS aliases, n_reels
+            ORDER BY n_reels DESC, name LIMIT $lim""", m=min_reels, lim=limit_concepts)
     assertions = _assertions(store)
     keys = {c["key"] for c in bridge}
     extra = sorted({k for a in assertions for k in (a["subject_key"], a["object_key"])} - keys)
-    concepts = [{**c, "bridge": True} for c in bridge] + [{**c, "bridge": c["n_reels"] >= min_reels}
+    concepts = [{**c, "bridge": c["n_reels"] >= min_reels} for c in bridge] + [{**c, "bridge": c["n_reels"] >= min_reels}
                                                           for c in _concept_rows(store, extra)]
     shown = [c["key"] for c in concepts]
     mentions = store.run("""
@@ -66,7 +76,7 @@ def overview(store: Neo4jStore, min_reels: int = 2, limit_concepts: int = 150, r
         RETURN r.reel_id AS reel_id, c.key AS concept_key, count(p) AS passages""", rids=rids, keys=shown)
     return {"reels": reels, "concepts": concepts, "mentions": mentions, "assertions": assertions,
             "totals": {**totals, "reels_shown": len(reels), "concepts_shown": len(concepts),
-                       "reel_offset": reel_offset, "min_reels": min_reels},
+                       "reel_offset": reel_offset, "min_reels": min_reels, "within": within},
             "note": "Mentions mean a Reel names the concept; two Reels mentioning one concept is not a relationship."}
 
 def neighborhood(store: Neo4jStore, kind: str, node_id: str, limit: int = 200) -> dict:

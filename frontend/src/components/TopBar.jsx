@@ -1,24 +1,27 @@
-// Top bar: brand, graph summary, live status, search, filters and chat toggle.
+// Top bar: brand, graph summary (opens the Reel scope picker), live status, search, filters and chat toggle.
 import FilterPopover from './FilterPopover.jsx'
+import ReelScope from './ReelScope.jsx'
 import SearchBox from './SearchBox.jsx'
 
 export function graphMeta(model, status) {
   if (status === 'offline') return 'Knowledge Graph Offline'
   if (status === 'loading') return 'Loading Graph…'
+  if (status === 'error') return 'Graph Not Loaded'
   const t = model?.totals
   if (!t) return ''
   const shownConcepts = Object.keys(model.concepts).length
   return `${shownConcepts}/${t.concepts} Concepts`
 }
 
-export default function TopBar({ model, graphStatus, status, query, onQuery, onPick, filters, onFilters, chatOpen, onToggleChat }) {
+export default function TopBar({ model, graphStatus, scope, onScope, status, query, onQuery, onPick, filters, onFilters, chatOpen, onToggleChat }) {
   const offline = graphStatus === 'offline' || graphStatus === 'error'
   return (
     <header className="topbar">
       <div className="tb-title">
         <img className="brand-mark" src="/workspace/logo.svg" alt="" aria-hidden="true" />
         <span className="tb-name">MacaroniGraph</span>
-        <span className="tb-meta" data-testid="graph-meta">{graphMeta(model, graphStatus)}</span>
+        <ReelScope label={graphMeta(model, graphStatus)} scope={scope} total={model?.totals?.reels} onScope={onScope}
+          disabled={graphStatus === 'offline' || graphStatus === 'loading'} />
       </div>
       <div className="tb-actions">
         {status && (
