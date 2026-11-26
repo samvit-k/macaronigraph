@@ -19,7 +19,7 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import config, evalframes, extension_package, indexer, jobs, metadata, worker
+from . import config, evalframes, extension_package, indexer, jobs, metadata, security, worker
 
 SOURCES = {"test": config.TEST_POSTS_PATH, "instagram": config.INSTAGRAM_POSTS_PATH}
 
@@ -69,8 +69,14 @@ def _graph_call(fn: str):
         return None
 
 app = FastAPI(title="MacaroniGraph", version=config.PIPELINE_VERSION, lifespan=lifespan)
-app.add_middleware(CORSMiddleware, allow_origin_regex=r"chrome-extension://.*", allow_methods=["*"],
-                   allow_headers=["*"])
+app.add_middleware(CORSMiddleware, allow_origins=security.extension_origins(), allow_methods=["*"], allow_headers=["*"])
+
+@app.middleware("http")
+async def guard(request, call_next):
+    reason = security.rejection(request.url.path, request.headers)
+    if reason:
+        return Response(f"Forbidden: {reason}", status_code=403, media_type="text/plain")
+    return await call_next(request)
 
 @app.get("/api/health")
 def health():

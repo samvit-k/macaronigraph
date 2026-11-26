@@ -1,5 +1,6 @@
 """Test-session isolation: a temporary OUTPUT_DIR per test and a guard that refuses production data."""
 import json
+import os
 import sqlite3
 import subprocess
 import sys
@@ -10,6 +11,8 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+# FastAPI's TestClient sends Host: testserver; the request guard must accept it in tests only.
+os.environ.setdefault("ALLOWED_HOSTS", "127.0.0.1,localhost,::1,testserver")
 
 from backend import config  # noqa: E402
 

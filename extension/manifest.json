@@ -4,6 +4,7 @@
   "version": "0.2.0",
   "description": "Turn your saved Reels into searchable text: local transcription and on-screen text extraction.",
   "minimum_chrome_version": "116",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuOk+47PQ2M8F5GYULiN6q2sTQuo3fJHt27Z3Pmxa3vSWxeMpB6qbuo5dFMM8O+1g4g2nZA9SaTYhWJ9W4lWohxH8gs2P+JQSEaqy4iK8lWne5tUz3GH13/xCrwRXXaa/Yksz295I6RiqeC1ugOJfCBbCyVcKg8YAfodSrO1huoQznwCsHlZuALcx9jfHbwSPHk9Um+fUVdaSCNwa9Kte7zMryEYXSBCrU2C99EVky9ireCso5RSIC/E9WNTI+oLbgtb68TY8fED2a3OUDy4fvLYfslaAI/J8eUETBSr5LIsknLxp9XbLgLPcVao5W1Z1UoflTXIkq+fEgLMf+tPtPQIDAQAB",
   "permissions": ["tabCapture", "offscreen", "tabs", "scripting", "storage", "activeTab"],
   "host_permissions": [
     "http://localhost:8765/*",

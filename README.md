@@ -47,6 +47,14 @@ Browser: /workspace/  (React + Cytoscape)   /api/ask → hybrid retrieval → ci
 - **Terms of Service:** Instagram's Terms of Use prohibit automated access. MacaroniGraph only visits your own saved
   items, slowly and in your own session, but it is still automated access. Each processed Reel counts as a play.
   Nothing is liked, saved, followed or posted.
+- **Extension permissions:** the extension can capture a tab's audio and video, control tabs and run scripts on
+  instagram.com, which it needs to play and transcribe Reels. It only talks to instagram.com and the local backend. It
+  is not on the Chrome Web Store, so it installs in Developer mode without Google's review and does not auto-update;
+  the code and the release zip are public, so you can check what you install.
+- **Who can use the backend:** only pages it serves itself and the MacaroniGraph extension, whose ID is fixed by the
+  `key` in `extension/manifest.json`. Other websites and other extensions are refused (Origin check), as are requests
+  under any host name other than `127.0.0.1`/`localhost`, which blocks DNS rebinding. There is no password, so
+  programs running under your own account can still reach it, just as they can read `output/`.
 
 ## Requirements
 
@@ -122,6 +130,8 @@ Settings come from environment variables; nothing is hardcoded. The main ones:
 | `EMBED_MODEL` | `Qwen/Qwen3-Embedding-0.6B` | Embedding model (pinned revision) |
 | `RAG_LLM` / `GRAPH_LLM` | `mlx-community/Qwen3-4B-Instruct-2507-4bit` | Answer and extraction model |
 | `ASYNC_PROCESSING`, `INDEX_AUTO`, `GRAPH_AUTO` | `1` | Background processing, automatic indexing, automatic graph sync |
+| `ALLOWED_HOSTS` | `127.0.0.1,localhost,::1` | Host names the backend answers to |
+| `MACARONIGRAPH_EXTENSION_IDS` | empty | Extra extension IDs allowed, e.g. for your own build without the pinned key |
 
 The answer pipeline's settings are frozen in `fixtures/rag_answer_config.json` (configuration **D6**), and retrieval
 parameters in `fixtures/rag_params.json`. Tests check that the code defaults match both files.

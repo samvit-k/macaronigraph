@@ -78,6 +78,10 @@ RAG_IDLE_UNLOAD_S = float(os.environ.get("RAG_IDLE_UNLOAD_S", "300"))
 RAG_HEAVY_WAIT_S = float(os.environ.get("RAG_HEAVY_WAIT_S", "90"))
 LISTING_SUMMARY = os.environ.get("LISTING_SUMMARY", "1") == "1"
 
+# Request guard (backend/security.py): host names the backend answers to, and extension IDs allowed besides the pinned one.
+ALLOWED_HOSTS = tuple(h.strip().lower() for h in os.environ.get("ALLOWED_HOSTS", "127.0.0.1,localhost,::1").split(",") if h.strip())
+EXTRA_EXTENSION_IDS = tuple(i.strip() for i in os.environ.get("MACARONIGRAPH_EXTENSION_IDS", "").split(",") if i.strip())
+
 def configure_tesseract() -> None:
     import pytesseract
 
