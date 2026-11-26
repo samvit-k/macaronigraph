@@ -1,5 +1,8 @@
 """Deterministic listings over a real temporary Chroma index: detection, exact matching and scope."""
 
+import json
+import re
+
 import pytest
 
 from backend import answer, ask, config, conversations, embedder, indexer, jobs, listing, models
@@ -92,6 +95,7 @@ def test_graph_offline_still_answers_with_the_exact_wording(idx):
     assert out["deterministic"]["reels"] == ["A", "B", "C"] and "graph aliases unavailable" in out["text"]
 
 def test_api_answers_listings_without_the_model_even_while_capture_is_active(idx, monkeypatch):
+    monkeypatch.setattr(config, "LISTING_SUMMARY", False)
     monkeypatch.setattr(models, "shared_llm", lambda *a: NoModel())
     jobs.create_session("instagram-live", "instagram", 0)
     r = ask.ask("Which Reels mention CUDA?", graph=FakeGraph(), llm=NoModel())
@@ -106,3 +110,66 @@ def test_api_answers_listings_without_the_model_even_while_capture_is_active(idx
 def test_listing_is_off_unless_enabled(idx, monkeypatch):
     monkeypatch.setitem(answer.DEFAULTS, "listing", False)
     assert answer.deterministic("Which Reels mention CUDA?", {"sources": []}) is None
+
+class SummaryLLM:
+    def __init__(self, reply=None):
+        self.prompts, self.reply = [], reply
+
+    def generate(self, system, user, max_tokens=0):
+        assert models.held_by_me()
+        self.prompts.append(user)
+        if self.reply is not None:
+            return self.reply, {"finish_reason": "stop"}
+        sids = re.findall(r'<source id="(S\d+)"', user)
+        return json.dumps({"s": [{"t": "The Reels say CUDA runs GPU kernels.", "c": sids[:2], "k": "src"}]}), \
+            {"finish_reason": "stop"}
+
+def test_listing_summary_is_written_from_the_listed_passages_only(idx):
+    llm = SummaryLLM()
+    r = ask.ask("Which Reels mention CUDA?", graph=FakeGraph(), llm=llm)
+    assert r["status"] == "ok" and {c["reel_id"] for c in r["citations"]} == {"A", "B", "C"}
+    s = r["answer"]["summary"]
+    assert s["status"] == "ok" and s["sentences"][0]["citations"] == ["S1", "S2"]
+    assert {c["sid"] for c in s["citations"]} <= {c["sid"] for c in r["citations"]}
+    assert s["based_on"] == s["of"] == 3 and "CUDA" in s["question"]
+    assert len(llm.prompts) == 1 and "leet code" not in llm.prompts[0] and "sourdough" not in llm.prompts[0]
+    assert r["answer"]["sentences"] == conversations.get_turn(r["turn_id"])["answer"]["sentences"]
+    assert all(x["support"] == "deterministic" for x in r["answer"]["sentences"])
+
+def test_listing_is_shown_at_once_and_its_summary_waits_while_capture_is_active(idx):
+    jobs.create_session("instagram-live", "instagram", 0)
+    r = ask.ask("Which Reels mention CUDA?", graph=FakeGraph(), llm=NoModel())
+    assert r["status"] == "queued" and {c["reel_id"] for c in r["citations"]} == {"A", "B", "C"}
+    assert r["answer"]["sentences"] and r["answer"]["summary"]["status"] == "pending"
+    with jobs.tx() as con:
+        con.execute("UPDATE sessions SET finished_at = 1")
+    llm = SummaryLLM()
+    assert ask.process_one(llm=llm) == r["request_id"]
+    done = ask.request_status(r["request_id"])
+    assert done["status"] == "ok" and done["answer"]["summary"]["status"] == "ok"
+    assert done["answer"]["sentences"] == r["answer"]["sentences"] and done["citations"] == r["citations"]
+
+def test_a_listing_queued_at_restart_keeps_its_evidence(idx):
+    jobs.create_session("instagram-live", "instagram", 0)
+    r = ask.ask("Which Reels mention CUDA?", graph=FakeGraph(), llm=NoModel())
+    assert conversations.expire_queued() == 1
+    t = ask.request_status(r["request_id"])
+    assert t["status"] == "expired" and t["answer"]["sentences"] == r["answer"]["sentences"]
+
+def test_unreadable_summary_is_reported_and_the_listing_is_kept(idx):
+    r = ask.ask("Which Reels mention CUDA?", graph=FakeGraph(), llm=SummaryLLM(reply="not json"))
+    assert r["status"] == "ok" and r["answer"]["summary"]["status"] == "error"
+    assert {c["reel_id"] for c in r["citations"]} == {"A", "B", "C"}
+
+def test_no_matches_and_disabled_summaries_never_call_the_model(idx, monkeypatch):
+    r = ask.ask("Which Reels mention Kubernetes?", graph=FakeGraph(), llm=NoModel())
+    assert r["status"] == "ok" and r["answer"]["summary"] is None
+    monkeypatch.setattr(config, "LISTING_SUMMARY", False)
+    r = ask.ask("Which Reels mention CUDA?", graph=FakeGraph(), llm=NoModel())
+    assert r["status"] == "ok" and r["answer"]["summary"] is None
+
+def test_summary_passages_are_windowed_around_the_match():
+    long = "x " * 600 + "CUDA" + " y" * 600
+    w = answer._window({"text": long, "sid": "S1"}, "CUDA")
+    assert "CUDA" in w["text"] and len(w["text"]) <= 2 * answer.SUMMARY_WINDOW + 10
+    assert w["text"].startswith("…") and w["text"].endswith("…")

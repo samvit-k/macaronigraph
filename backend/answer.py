@@ -377,14 +377,14 @@ def render(sentences: list[dict], missing: str, status: str, conflict: bool = Fa
     return out + (f"\n\n{missing}" if missing else "")
 
 def generate(question: str, retrieval: dict, llm=None, timeout: float | None = None,
-             follow_up: bool = False) -> dict:
+             follow_up: bool = False, gated: bool = True) -> dict:
     """Raises models.HeavyBusy if the model is not free within timeout; never call while holding models.heavy()."""
     if not retrieval["sources"]:
         out = validate({"s": [], "insufficient": True}, retrieval)
         return {**out, "timing": {"generate_s": 0.0, "model_load_s": 0.0, "cold": False}, "generated": False}
     mode = DEFAULTS.get("sufficiency") or "off"
     gate = None
-    if mode != "off":
+    if mode != "off" and gated:
         from . import sufficiency
         sig = sufficiency.signals(question, retrieval)
         # Hard gates never apply to follow-ups: their signals would be computed on a context-dependent question.
@@ -460,3 +460,23 @@ def respond(question: str, retrieval: dict, llm=None, timeout: float | None = No
                 out = verify.check(question, retrieval, out, llm, mode=mode, coverage=bool(DEFAULTS.get("coverage")))
     out.setdefault("timing", {})["answer_s"] = round(time.perf_counter() - t0, 3)
     return out
+
+SUMMARY_SOURCES = 20
+SUMMARY_WINDOW = 400
+
+def _window(s: dict, match: str) -> dict:
+    text = " ".join(str(s["text"]).split())
+    i = max(0, text.lower().find(match.lower()))
+    a, b = max(0, i - SUMMARY_WINDOW), min(len(text), i + len(match) + SUMMARY_WINDOW)
+    return {**s, "text": ("…" if a else "") + text[a:b] + ("…" if b < len(text) else "")}
+
+def summarize_listing(listing: dict, sources: list[dict], llm=None, timeout: float | None = None) -> dict:
+    """A cited summary of an exact-search listing, written by the model from the listed passages only.
+
+    The listing itself is never changed; the summary cites the same source ids. Raises models.HeavyBusy."""
+    term = listing["deterministic"]["term"]
+    picked = [_window(s, (s.get("channels") or [{}])[0].get("match") or term) for s in sources[:SUMMARY_SOURCES]]
+    question = f"What do my saved Reels say about {term}?"
+    out = generate(question, {"sources": picked, "connections": {}}, llm=llm, timeout=timeout, gated=False)
+    keep = ("status", "text", "sentences", "removed", "missing", "conflict", "partial", "citations", "error", "timing")
+    return {**{k: out.get(k) for k in keep}, "question": question, "based_on": len(picked), "of": len(sources)}

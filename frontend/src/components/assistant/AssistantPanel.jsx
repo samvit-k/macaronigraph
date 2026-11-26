@@ -113,7 +113,7 @@ export default function AssistantPanel({ open, onClose, chat, draft, setDraft, f
         {!chat.loading && chat.turns.length === 0 && !chat.pending && (
           <div className="chat-empty">
             <p>Ask about your processed Reels. Answers are written by a local model from passages of your Reels and cite
-              them; listing and counting questions are answered by exact search.</p>
+              them; listing and counting questions are answered by exact search, with a summary above the matches.</p>
             {SUGGESTIONS.map((s) => (
               <button key={s} type="button" className="chip-btn" onClick={() => { setDraft(s); inputRef.current?.focus() }}>{s}</button>
             ))}

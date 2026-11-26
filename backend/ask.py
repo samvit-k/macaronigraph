@@ -86,28 +86,59 @@ def clarification(names: list[str]) -> dict:
             "model_said_insufficient": False, "citations": [], "text": text, "clarify": names, "generated": False,
             "gate": None, "timing": {"generate_s": 0.0, "model_load_s": 0.0, "cold": False}}
 
-def _deterministic_turn(tid: int, retrieval: dict) -> bool:
+def _deterministic_turn(tid: int, retrieval: dict) -> str | None:
     t = conversations.get_turn(tid) or {}
     rw = t.get("rewrite") or {}
     if rw.get("method") == "clarify" and rw.get("clarify"):
         conversations.update_turn(tid, status="clarify", answer=clarification(rw["clarify"]), cited_reels=[],
                                   cited_concepts=[])
-        return True
+        return "clarify"
+    if (t.get("answer") or {}).get("deterministic"):
+        return "listing"
     out = answer.deterministic(t.get("question") or "", retrieval, scope=_scope(t.get("rewrite") or {}))
     if out is None:
-        return False
+        return None
     conversations.update_turn(tid, status=out["status"], answer=out, retrieval=retrieval,
                               cited_reels=sorted({c["reel_id"] for c in out.get("citations", [])}), cited_concepts=[])
+    return "listing"
+
+def _summarize_listing(tid: int, llm=None, defer_if_busy: bool = False, timeout: float | None = None) -> bool:
+    """The listing is already stored; a model-written summary of its passages is added on top (or queued)."""
+    t = conversations.get_turn(tid) or {}
+    a = t.get("answer") or {}
+    if not config.LISTING_SUMMARY or not (a.get("deterministic") or {}).get("reels"):
+        return True
+
+    def wait(reason: str) -> bool:
+        conversations.update_turn(tid, answer={**a, "summary": {"status": "pending", "reason": reason}})
+        if defer_if_busy:
+            _enqueue(tid, f"deferred: {reason}")
+        return False
+
+    busy = _busy()
+    if busy:
+        return wait(busy)
+    try:
+        s = answer.summarize_listing(a, (t.get("retrieval") or {}).get("sources", []), llm=llm, timeout=timeout)
+    except models.HeavyBusy as e:
+        return wait(str(e))
+    except Exception as e:  # noqa: BLE001
+        s = {"status": "error", "error": f"summary failed: {type(e).__name__}: {e}"}
+    conversations.update_turn(tid, status="ok", error=None, answer={**a, "summary": s})
     return True
 
 def _generate_turn(tid: int, standalone: str, retrieval: dict, llm=None, defer_if_busy: bool = False,
                    timeout: float | None = None) -> bool:
     """True if generated (or failed permanently), False if it must wait; availability is rechecked first."""
+    kind = None
     try:
-        if _deterministic_turn(tid, retrieval):
-            return True
+        kind = _deterministic_turn(tid, retrieval)
     except Exception as e:  # noqa: BLE001
         print(f"[answers] deterministic listing failed: {type(e).__name__}: {e}", file=sys.stderr)
+    if kind == "listing":
+        return _summarize_listing(tid, llm=llm, defer_if_busy=defer_if_busy, timeout=timeout)
+    if kind:
+        return True
     busy = _busy()
     if busy:
         if defer_if_busy:
@@ -210,7 +241,7 @@ def response(t: dict) -> dict:
     status = t["status"]
     if a is not None:
         ans = {k: a.get(k) for k in ("status", "text", "sentences", "removed", "missing", "conflict", "partial",
-                                      "model_said_insufficient", "error")}
+                                      "model_said_insufficient", "error", "summary")}
     else:
         ans = {"status": {"queued": "deferred", "retrieval_only": "unavailable", "retrieved": "unavailable"}
                .get(status, status), "text": None, "sentences": [], "removed": [], "reason": t.get("error")}

@@ -76,6 +76,7 @@ RAG_LLM = os.environ.get("RAG_LLM", GRAPH_LLM)
 MODEL_REVISIONS = {"mlx-community/Qwen3-8B-4bit": "545dc4251c05440727734bcd94334791f6ab0192"}
 RAG_IDLE_UNLOAD_S = float(os.environ.get("RAG_IDLE_UNLOAD_S", "300"))
 RAG_HEAVY_WAIT_S = float(os.environ.get("RAG_HEAVY_WAIT_S", "90"))
+LISTING_SUMMARY = os.environ.get("LISTING_SUMMARY", "1") == "1"
 
 def configure_tesseract() -> None:
     import pytesseract

@@ -1,4 +1,5 @@
 // One exchange: generated answers, exact-search listings and app notes are rendered in visibly distinct styles.
+import { useState } from 'react'
 import { contentType } from '../../graph/vocab.js'
 
 const CITE = /\[(S\d+)\]/g
@@ -53,21 +54,55 @@ function Generated({ turn, onCite, onHighlight, active, graphReady }) {
   )
 }
 
+export const PREVIEW_ROWS = 3
+
+function Summary({ turn, onCite }) {
+  const s = turn.answer?.summary
+  const head = <div className="answer-head"><span>Generated Answer · Local Model</span></div>
+  if (turn.status === 'queued') {
+    return (
+      <div className="status-card wait" role="status">
+        <span className="spinner" aria-hidden="true" /> Waiting for the local model to summarize these Reels — capture or processing
+        is using it. The exact matches are below.
+      </div>
+    )
+  }
+  if (turn.status === 'expired') return <div className="status-card neutral">No summary: the backend restarted. The exact matches are below.</div>
+  if (turn.status === 'unavailable') return <div className="status-card neutral"><b>Summary Unavailable.</b> The local model's queue was full. The exact matches are below.</div>
+  if (s?.status === 'error') return <div className="status-card bad" role="alert"><b>Summary Failed.</b> {s.error ?? ''}</div>
+  if (s?.status !== 'ok' || !(s.sentences?.length)) {
+    return <div className="status-card neutral">The local model could not summarize these passages; the exact matches are below.</div>
+  }
+  return (
+    <div className="answer-box">
+      {head}
+      <p className="answer-text">{s.sentences.map((x, i) => <Sentence key={i} s={x} turn={turn} onCite={onCite} />)}</p>
+      {s.missing && <div className="answer-note partial">{s.missing}</div>}
+      {s.conflict && <div className="answer-note">The cited Reels may disagree; compare the sources.</div>}
+      {s.based_on < s.of && <div className="insp-small">Summarizes the first {s.based_on} of the {s.of} matching Reels below (spoken mentions first).</div>}
+    </div>
+  )
+}
+
 function Listing({ turn, onCite, onHighlight, active, graphReady }) {
   const a = turn.answer ?? {}
   const [head, ...items] = (a.sentences ?? [])
   const hasHead = head && (!head.citations || head.citations.length === 0)
   const rows = hasHead ? items : a.sentences ?? []
-  return (
+  const summarized = a.summary != null || ['queued', 'expired', 'unavailable'].includes(turn.status)
+  const [open, setOpen] = useState(false)
+  const collapsible = summarized && rows.length > PREVIEW_ROWS
+  const shown = collapsible && !open ? rows.slice(0, PREVIEW_ROWS) : rows
+  const evidence = (
     <div className={`answer-box exact${active ? ' active' : ''}`}>
       <div className="answer-head">
-        <span>Exact Search · No Model</span>
+        <span>{summarized ? 'Evidence · ' : ''}Exact Search · No Model</span>
         {graphReady && rows.length > 0 && <button type="button" className="link-btn" onClick={() => onHighlight(turn)}>{active ? 'Highlighted in Graph' : 'Show in Graph'}</button>}
       </div>
       {hasHead && <p className="answer-text strong">{head.text}</p>}
-      {rows.length > 0 && (
+      {shown.length > 0 && (
         <ul className="listing">
-          {rows.map((s, i) => {
+          {shown.map((s, i) => {
             const c = citationMap(turn)[s.citations?.[0]]
             return (
               <li key={i}>
@@ -79,9 +114,16 @@ function Listing({ turn, onCite, onHighlight, active, graphReady }) {
           })}
         </ul>
       )}
-      {listingScope(turn) && <div className="answer-note">{listingScope(turn)}</div>}
+      {collapsible && (
+        <button type="button" className="link-btn listing-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
+          {open ? 'Minimize Evidence' : `Show All ${rows.length} Matches`}
+        </button>
+      )}
+      {(!collapsible || open) && listingScope(turn) && <div className="answer-note">{listingScope(turn)}</div>}
     </div>
   )
+  if (!summarized) return evidence
+  return <div className="listing-stack"><Summary turn={turn} onCite={onCite} />{evidence}</div>
 }
 
 function Clarify({ turn, onClarify }) {
@@ -142,6 +184,7 @@ function MinimizeButton({ collapsed, onToggle }) {
 
 export default function ChatMessage({ turn, onCite, onHighlight, onClarify, active, graphReady = true, collapsed = false, onToggle = null }) {
   const answered = turn.status === 'ok' && (turn.answer?.sentences?.length ?? 0) > 0
+  const listing = isListing(turn) && (turn.answer?.sentences?.length ?? 0) > 0
   return (
     <div className="exchange" data-testid="exchange">
       <div className={`chat-row user${collapsed ? ' collapsed' : ''}`}>
@@ -154,9 +197,8 @@ export default function ChatMessage({ turn, onCite, onHighlight, onClarify, acti
           <div className="answer-note">Knowledge graph unavailable for this answer — it used passage search only.</div>
         )}
         {turn.status === 'clarify' ? <Clarify turn={turn} onClarify={onClarify} />
-          : answered ? (isListing(turn)
-            ? <Listing turn={turn} onCite={onCite} onHighlight={onHighlight} active={active} graphReady={graphReady} />
-            : <Generated turn={turn} onCite={onCite} onHighlight={onHighlight} active={active} graphReady={graphReady} />)
+          : listing ? <Listing turn={turn} onCite={onCite} onHighlight={onHighlight} active={active} graphReady={graphReady} />
+          : answered ? <Generated turn={turn} onCite={onCite} onHighlight={onHighlight} active={active} graphReady={graphReady} />
             : turn.status === 'ok'
               ? <div className="status-card neutral">{turn.answer?.text || 'No answer text was produced.'}</div>
               : <StatusCard turn={turn} />}

@@ -133,6 +133,59 @@ describe('ChatMessage', () => {
     expect(screen.getByText('Transcript')).toBeTruthy()
   })
 
+  const listed = (n, extra = {}) => turn({ intent: 'listing_list', ...extra, answer: { status: 'ok', missing: '',
+    text: 'rows\n\nExact search of transcripts, captions and on-screen text in 900 processed Reels.',
+    sentences: Array.from({ length: n }, (_, i) => ({ text: `@r${i}'s Reel mentions “Python” in its transcript: “…”`, citations: [`S${i + 1}`] })),
+    ...(extra.answer ?? {}) },
+    citations: Array.from({ length: n }, (_, i) => ({ sid: `S${i + 1}`, reel_id: `R${i}`, content_type: 'transcript', owner: `r${i}` })) })
+
+  it('puts the generated summary above a minimized evidence list that expands to every match', () => {
+    const onCite = vi.fn()
+    const t = listed(8, { answer: { summary: { status: 'ok', based_on: 8, of: 8,
+      sentences: [{ text: 'Several Reels recommend Python as a first language.', citations: ['S2', 'S5'] }] } } })
+    render(<ChatMessage turn={t} onCite={onCite} onHighlight={noop} onClarify={noop} />)
+    const summary = screen.getByText(/Generated Answer · Local Model/)
+    const evidence = screen.getByText(/Evidence · Exact Search · No Model/)
+    expect(summary.compareDocumentPosition(evidence) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.getByText(/recommend Python as a first language/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Cited source S5' }))
+    expect(onCite).toHaveBeenCalledWith(t, 'S5')
+    expect(screen.getAllByRole('listitem')).toHaveLength(3)
+    expect(screen.queryByText(/^Exact search of/)).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Show All 8 Matches' }))
+    expect(screen.getAllByRole('listitem')).toHaveLength(8)
+    expect(screen.getByText(/^Exact search of/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Minimize Evidence' }))
+    expect(screen.getAllByRole('listitem')).toHaveLength(3)
+  })
+
+  it('says when the summary covers only the first matches', () => {
+    render(<ChatMessage turn={listed(4, { answer: { summary: { status: 'ok', based_on: 2, of: 4,
+      sentences: [{ text: 'They say Python is easy.', citations: ['S1'] }] } } })} onCite={noop} onHighlight={noop} onClarify={noop} />)
+    expect(screen.getByText(/first 2 of the 4 matching Reels/)).toBeTruthy()
+  })
+
+  it.each([
+    ['queued', {}, /Waiting for the local model to summarize/],
+    ['expired', {}, /backend restarted/],
+    ['unavailable', {}, /Summary Unavailable/],
+    ['ok', { status: 'error', error: 'answer format' }, /Summary Failed/],
+    ['ok', { status: 'insufficient_evidence', sentences: [] }, /could not summarize/],
+  ])('keeps the evidence visible when the summary is %s', (status, summary, re) => {
+    render(<ChatMessage turn={listed(5, { status, answer: { summary: status === 'ok' ? summary : { status: 'pending' } } })}
+      onCite={noop} onHighlight={noop} onClarify={noop} />)
+    expect(screen.getByText(re)).toBeTruthy()
+    expect(screen.getAllByRole('listitem')).toHaveLength(3)
+    expect(screen.getByRole('button', { name: 'Show All 5 Matches' })).toBeTruthy()
+  })
+
+  it('shows listings without a summary in full, as before', () => {
+    render(<ChatMessage turn={listed(6)} onCite={noop} onHighlight={noop} onClarify={noop} />)
+    expect(screen.getAllByRole('listitem')).toHaveLength(6)
+    expect(screen.queryByText(/Generated Answer/)).toBeNull()
+    expect(screen.queryByRole('button', { name: /Show All/ })).toBeNull()
+  })
+
   it('offers clarification choices that are only put into the composer', () => {
     const onClarify = vi.fn()
     const t = turn({ status: 'clarify', question: 'Which store sells it?', rewrite: { method: 'clarify', clarify: ['Alpha Grinder', 'Beta Grinder'] },
