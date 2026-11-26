@@ -1,8 +1,9 @@
 // Filter popover: concept types, edge kinds and view toggles, with per-row counts.
 import { useState } from 'react'
 import { DEFAULT_FILTERS, filterCounts } from '../graph/toElements.js'
-import { CONCEPT_ORDER, CONCEPT_TYPES, EDGE_KINDS, EDGE_ORDER } from '../graph/vocab.js'
+import { CONCEPT_ORDER, CONCEPT_TYPES, EDGE_KINDS, EDGE_ORDER, edgeColor } from '../graph/vocab.js'
 import { LineSwatch } from './Legend.jsx'
+import { useThemeName } from '../theme.jsx'
 
 export function activeFilterCount(filters) {
   return CONCEPT_ORDER.filter((k) => filters.types[k] === false).length +
@@ -10,6 +11,7 @@ export function activeFilterCount(filters) {
 }
 
 export default function FilterPopover({ model, filters, onChange, disabled = false }) {
+  const theme = useThemeName()
   const [open, setOpen] = useState(false)
   const counts = filterCounts(model)
   const off = activeFilterCount(filters)
@@ -39,7 +41,7 @@ export default function FilterPopover({ model, filters, onChange, disabled = fal
             {EDGE_ORDER.map((k) => (
               <label className="pop-row" key={k} title={EDGE_KINDS[k].help}>
                 <input type="checkbox" checked={filters.edges[k] !== false} onChange={(e) => setEdge(k, e.target.checked)} />
-                <LineSwatch color={EDGE_KINDS[k].color} line={EDGE_KINDS[k].line} width={EDGE_KINDS[k].width} />
+                <LineSwatch color={edgeColor(k, theme)} line={EDGE_KINDS[k].line} width={EDGE_KINDS[k].width} />
                 <span className="name">{EDGE_KINDS[k].label}</span>
                 <span className="count">{counts.edges[k] ?? 0}</span>
               </label>

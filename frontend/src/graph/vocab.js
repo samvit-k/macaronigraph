@@ -17,23 +17,24 @@ export const conceptType = (t) => CONCEPT_TYPES[t] ?? { label: t ? t[0].toUpperC
 
 export const EDGE_KINDS = {
   mention: {
-    label: 'Mention', line: 'dotted', color: '#5d6370', width: 1.5, opacity: 0.8,
+    label: 'Mention', line: 'dotted', color: '#5d6370', dark: '#9aa1ad', width: 1.5, opacity: 0.8,
     help: 'The Reel names this concept. A shared concept between Reels is co-mention, not a relationship.',
   },
   proposed: {
-    label: 'Proposed Relationship', line: 'dashed', color: '#a8794a', width: 2, opacity: 0.95,
+    label: 'Proposed Relationship', line: 'dashed', color: '#a8794a', dark: '#d1a06d', width: 2, opacity: 0.95,
     help: 'Extracted by the local model from one Reel; its quote was checked against the passage. Not a verified fact.',
   },
   corroborated: {
-    label: 'Corroborated Relationship', line: 'solid', color: '#2f7a55', width: 2.4, opacity: 0.95,
+    label: 'Corroborated Relationship', line: 'solid', color: '#2f7a55', dark: '#5fbf8d', width: 2.4, opacity: 0.95,
     help: 'The same relationship was proposed independently in two or more Reels. Still not human-verified.',
   },
   verified: {
-    label: 'Human-Verified Relationship', line: 'solid', color: '#5b55d6', width: 3, opacity: 1,
+    label: 'Human-Verified Relationship', line: 'solid', color: '#5b55d6', dark: '#8f89ff', width: 3, opacity: 1,
     help: 'A person reviewed this relationship and accepted it.',
   },
 }
 export const EDGE_ORDER = ['mention', 'proposed', 'corroborated', 'verified']
+export const edgeColor = (kind, theme = 'light') => (theme === 'dark' ? EDGE_KINDS[kind]?.dark : null) ?? EDGE_KINDS[kind]?.color
 export const ASSERTION_STATUSES = ['proposed', 'corroborated', 'verified']
 
 export const PREDICATES = {

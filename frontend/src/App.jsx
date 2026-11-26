@@ -10,6 +10,7 @@ import { answerHighlight, conceptId, DEFAULT_FILTERS, hiddenIds, matchingIds, re
 import { useConversation } from './state/useConversation.js'
 import { useGraph } from './state/useGraph.js'
 import { useStatus } from './state/useStatus.js'
+import { ThemeContext, useTheme } from './theme.jsx'
 
 const NARROW = '(max-width: 1100px)'
 
@@ -53,6 +54,7 @@ function StageState({ graph }) {
 }
 
 export default function App() {
+  const [theme, toggleTheme] = useTheme()
   const graph = useGraph()
   const chat = useConversation()
   const status = useStatus()
@@ -131,34 +133,36 @@ export default function App() {
   }, [])
 
   return (
-    <div className={`app${chatOpen ? ' as-open' : ''}${narrow ? ' narrow' : ''}`}>
-      <main className="main">
-        <TopBar model={model} graphStatus={graph.status} scope={graph.scope} onScope={(n) => { setSelection(null); graph.setScope(n) }}
-          status={status} query={query} onQuery={setQuery} onPick={onPick}
-          filters={filters} onFilters={setFilters} chatOpen={chatOpen} onToggleChat={() => setChatOpen((v) => !v)} />
-        <div className="stage">
-          {graph.status === 'ready' && Object.keys(model.reels).length > 0 && (
-            <>
-              <GraphCanvas model={model} hidden={hidden} matches={matches} selection={selection?.kind === 'source'
-                ? { kind: 'reel', id: selection.citation?.reel_id } : selection} highlight={highlight}
-                onSelect={onSelect} onToggleExpand={onToggleExpand} />
-              <Legend />
-              {Object.keys(model.expanded).length > 0 && (
-                <div className="stage-hint">
-                  <button type="button" className="link-btn" onClick={() => { graph.resetToOverview(); setSelection(null) }}>Back to Overview</button>
-                </div>
-              )}
-            </>
-          )}
-          <StageState graph={graph} />
-          <Inspector selection={selection} model={model} graph={graph} onSelect={onSelect} onClose={() => setSelection(null)} onAsk={onAsk}
-            graphReady={graph.status === 'ready'} />
-        </div>
-      </main>
-      {narrow && chatOpen && <div className="as-scrim" onClick={() => setChatOpen(false)} aria-hidden="true" />}
-      <AssistantPanel open={chatOpen} onClose={() => setChatOpen(false)} chat={chat} draft={draft} setDraft={setDraft}
-        focusTick={focusTick} onCite={onCite} onHighlight={highlightAnswer} activeTurn={highlightTurn}
-        graphReady={graph.status === 'ready'} />
-    </div>
+    <ThemeContext.Provider value={theme}>
+      <div className={`app${chatOpen ? ' as-open' : ''}${narrow ? ' narrow' : ''}`}>
+        <main className="main">
+          <TopBar model={model} graphStatus={graph.status} scope={graph.scope} onScope={(n) => { setSelection(null); graph.setScope(n) }}
+            status={status} theme={theme} onTheme={toggleTheme} query={query} onQuery={setQuery} onPick={onPick}
+            filters={filters} onFilters={setFilters} chatOpen={chatOpen} onToggleChat={() => setChatOpen((v) => !v)} />
+          <div className="stage">
+            {graph.status === 'ready' && Object.keys(model.reels).length > 0 && (
+              <>
+                <GraphCanvas model={model} hidden={hidden} matches={matches} selection={selection?.kind === 'source'
+                  ? { kind: 'reel', id: selection.citation?.reel_id } : selection} highlight={highlight}
+                  onSelect={onSelect} onToggleExpand={onToggleExpand} />
+                <Legend />
+                {Object.keys(model.expanded).length > 0 && (
+                  <div className="stage-hint">
+                    <button type="button" className="link-btn" onClick={() => { graph.resetToOverview(); setSelection(null) }}>Back to Overview</button>
+                  </div>
+                )}
+              </>
+            )}
+            <StageState graph={graph} />
+            <Inspector selection={selection} model={model} graph={graph} onSelect={onSelect} onClose={() => setSelection(null)} onAsk={onAsk}
+              graphReady={graph.status === 'ready'} />
+          </div>
+        </main>
+        {narrow && chatOpen && <div className="as-scrim" onClick={() => setChatOpen(false)} aria-hidden="true" />}
+        <AssistantPanel open={chatOpen} onClose={() => setChatOpen(false)} chat={chat} draft={draft} setDraft={setDraft}
+          focusTick={focusTick} onCite={onCite} onHighlight={highlightAnswer} activeTurn={highlightTurn}
+          graphReady={graph.status === 'ready'} />
+      </div>
+    </ThemeContext.Provider>
   )
 }

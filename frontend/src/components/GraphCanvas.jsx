@@ -6,6 +6,7 @@ import { buildStyle } from '../graph/style.js'
 import { assertionId, buildElements, conceptId, mentionId, reelId } from '../graph/toElements.js'
 import { createAutoFit, GRAPH_MAX_ZOOM, GRAPH_MIN_ZOOM, LEGEND_EVENT } from '../graph/viewport.js'
 import { conceptType, EDGE_KINDS } from '../graph/vocab.js'
+import { useThemeName } from '../theme.jsx'
 import ZoomControls from './ZoomControls.jsx'
 
 const DOT_SPACING = 22
@@ -60,10 +61,12 @@ export default function GraphCanvas({ model, hidden, matches, selection, highlig
   cb.current = { onSelect, onToggleExpand }
   const [zoom, setZoom] = useState(1)
   const [tip, setTip] = useState(null)
+  const theme = useThemeName()
+  const themeRef = useRef(theme)
 
   useEffect(() => {
     const cy = cytoscape({
-      container: containerRef.current, style: buildStyle(), minZoom: GRAPH_MIN_ZOOM, maxZoom: GRAPH_MAX_ZOOM,
+      container: containerRef.current, style: buildStyle(themeRef.current), minZoom: GRAPH_MIN_ZOOM, maxZoom: GRAPH_MAX_ZOOM,
       wheelSensitivity: 0.25, boxSelectionEnabled: false, selectionType: 'single',
 
     })
@@ -119,6 +122,11 @@ export default function GraphCanvas({ model, hidden, matches, selection, highlig
       cy.destroy(); cyRef.current = null
     }
   }, [])
+
+  useEffect(() => {
+    themeRef.current = theme
+    cyRef.current?.style(buildStyle(theme))
+  }, [theme])
 
   useEffect(() => {
     const cy = cyRef.current

@@ -2,6 +2,7 @@
 import FilterPopover from './FilterPopover.jsx'
 import ReelScope from './ReelScope.jsx'
 import SearchBox from './SearchBox.jsx'
+import { ThemeToggle } from '../theme.jsx'
 
 export function graphMeta(model, status) {
   if (status === 'offline') return 'Knowledge Graph Offline'
@@ -13,7 +14,7 @@ export function graphMeta(model, status) {
   return `${shownConcepts}/${t.concepts} Concepts`
 }
 
-export default function TopBar({ model, graphStatus, scope, onScope, status, query, onQuery, onPick, filters, onFilters, chatOpen, onToggleChat }) {
+export default function TopBar({ model, graphStatus, scope, onScope, status, theme, onTheme, query, onQuery, onPick, filters, onFilters, chatOpen, onToggleChat }) {
   const offline = graphStatus === 'offline' || graphStatus === 'error'
   return (
     <header className="topbar">
@@ -31,6 +32,7 @@ export default function TopBar({ model, graphStatus, scope, onScope, status, que
         )}
         <SearchBox query={query} onQuery={onQuery} onPick={onPick} disabled={offline} />
         <FilterPopover model={model} filters={filters} onChange={onFilters} disabled={offline} />
+        {onTheme && <ThemeToggle theme={theme} onToggle={onTheme} className="btn btn-icon theme-btn" />}
         <a className="btn btn-ghost" href="/welcome" title="Install the extension and set up capture">Setup</a>
         <button type="button" className={`btn ${chatOpen ? 'btn-on' : ''}`} onClick={onToggleChat} aria-pressed={chatOpen}
           aria-controls="assistant-panel" title="Ask your saved Reels">

@@ -1,5 +1,6 @@
-/* Design tokens; the graph colours are mirrored in src/graph/vocab.js. */
+/* Design tokens (light, then dark); the graph colours are mirrored in src/graph/vocab.js and style.js. */
 :root {
+  color-scheme: light;
   --bg: #fafafa;
   --bg-elev: #ffffff;
   --bg-panel: #f6f7f9;
@@ -28,6 +29,28 @@
   --warn-bg: #fff8ec;
   --warn-line: rgba(168, 103, 13, 0.28);
 
+  --on-accent: #ffffff;
+  --line-strong: #d9dbe0;
+  --glass: rgba(255, 255, 255, 0.9);
+  --glass-2: rgba(255, 255, 255, 0.85);
+  --dot: rgba(17, 19, 24, 0.14);
+  --dot-soft: rgba(17, 19, 24, 0.075);
+  --scrim-soft: rgba(17, 19, 24, 0.06);
+  --scrim: rgba(17, 19, 24, 0.18);
+  --scrim-strong: rgba(17, 19, 24, 0.28);
+  --node-line: rgba(17, 19, 24, 0.4);
+  --node-line-soft: rgba(17, 19, 24, 0.2);
+  --node-faint: #c9ccd2;
+  --reel-line: rgba(45, 42, 122, 0.6);
+  --warn-text: #6b4a12;
+  --wait-bg: #fffaf1;
+  --bad-bg: #fdf2f1;
+  --bad-text: #8a2c27;
+  --danger-hover: #a63630;
+  --danger-soft: rgba(194, 65, 59, 0.1);
+  --glow-a: rgba(91, 85, 214, 0.16);
+  --glow-b: rgba(227, 163, 59, 0.12);
+
   --c-reel: #7b76e0;
   --c-concept: #3a8f86;
   --c-method: #b7791f;
@@ -48,4 +71,59 @@
   --tb-h: 60px;
   --as-w: 420px;
   --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0d0e12;
+  --bg-elev: #16181d;
+  --bg-panel: #121419;
+  --bg-stage: #0f1115;
+  --bg-sunken: #1d2027;
+  --hover: rgba(255, 255, 255, 0.06);
+  --active: rgba(255, 255, 255, 0.1);
+  --text: #eef0f4;
+  --ink: #e2e5ea;
+  --muted: #a3a9b5;
+  --faint: #737a87;
+  --hair: rgba(255, 255, 255, 0.1);
+  --hair-2: rgba(255, 255, 255, 0.06);
+
+  --accent: #8f89ff;
+  --accent-ink: #b5b0ff;
+  --accent-soft: rgba(143, 137, 255, 0.16);
+  --accent-line: rgba(143, 137, 255, 0.45);
+  --macaroni: #e9b04f;
+  --macaroni-ink: #f0c376;
+  --macaroni-soft: rgba(233, 176, 79, 0.16);
+
+  --ok: #6fc39a;
+  --warn: #e6b45e;
+  --danger: #f0837d;
+  --warn-bg: rgba(230, 180, 94, 0.1);
+  --warn-line: rgba(230, 180, 94, 0.3);
+
+  --on-accent: #0d0e12;
+  --line-strong: #353a45;
+  --glass: rgba(22, 24, 29, 0.9);
+  --glass-2: rgba(22, 24, 29, 0.85);
+  --dot: rgba(255, 255, 255, 0.12);
+  --dot-soft: rgba(255, 255, 255, 0.07);
+  --scrim-soft: rgba(0, 0, 0, 0.2);
+  --scrim: rgba(0, 0, 0, 0.45);
+  --scrim-strong: rgba(0, 0, 0, 0.55);
+  --node-line: rgba(0, 0, 0, 0.6);
+  --node-line-soft: rgba(0, 0, 0, 0.4);
+  --node-faint: #4a4f5a;
+  --reel-line: rgba(0, 0, 0, 0.5);
+  --warn-text: #f0c98a;
+  --wait-bg: rgba(233, 176, 79, 0.08);
+  --bad-bg: rgba(240, 131, 125, 0.08);
+  --bad-text: #f4a5a0;
+  --danger-hover: #d9615b;
+  --danger-soft: rgba(240, 131, 125, 0.14);
+  --glow-a: rgba(143, 137, 255, 0.2);
+  --glow-b: rgba(233, 176, 79, 0.1);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 10px 32px rgba(0, 0, 0, 0.5);
 }

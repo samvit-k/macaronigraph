@@ -1,5 +1,6 @@
 // Welcome page: extension download and setup steps, served by the local backend or hosted on GitHub Pages.
 import { useEffect, useState } from 'react'
+import { ThemeToggle, useTheme } from '../theme.jsx'
 
 export const REPO_URL = 'https://github.com/samvit-k/macaronigraph'
 export const RELEASE_ZIP = `${REPO_URL}/releases/latest/download/macaronigraph-extension.zip`
@@ -21,6 +22,7 @@ export const steps = (hosted) => [
 ]
 
 export default function Welcome({ hosted = false }) {
+  const [theme, toggleTheme] = useTheme()
   const [health, setHealth] = useState(null)
   useEffect(() => {
     if (hosted) return
@@ -33,7 +35,10 @@ export default function Welcome({ hosted = false }) {
       <div className="wl-glow" aria-hidden="true" />
       <header className="wl-nav">
         <span className="wl-brand"><img src={LOGO} alt="" aria-hidden="true" />MacaroniGraph</span>
-        <a className="wl-navlink" href={nav.href}>{nav.label}</a>
+        <span className="wl-navend">
+          <a className="wl-navlink" href={nav.href}>{nav.label}</a>
+          <ThemeToggle theme={theme} onToggle={toggleTheme} className="wl-theme" />
+        </span>
       </header>
       <main className="wl-hero">
         <h1>A <span className="accent">knowledge graph</span> of your saved Reels.</h1>

@@ -1,7 +1,8 @@
 // Collapsible legend of node and edge kinds; the canvas refits around it.
 import { useEffect, useRef, useState } from 'react'
 import { LEGEND_EVENT } from '../graph/viewport.js'
-import { CONCEPT_ORDER, CONCEPT_TYPES, EDGE_KINDS, EDGE_ORDER, REEL } from '../graph/vocab.js'
+import { CONCEPT_ORDER, CONCEPT_TYPES, EDGE_KINDS, EDGE_ORDER, REEL, edgeColor } from '../graph/vocab.js'
+import { useThemeName } from '../theme.jsx'
 
 export function LineSwatch({ color, line, width = 1.6, opacity = 1 }) {
   const dash = line === 'dashed' ? '6 4' : line === 'dotted' ? '2 2.5' : undefined
@@ -15,6 +16,7 @@ export function LineSwatch({ color, line, width = 1.6, opacity = 1 }) {
 const startsOpen = () => typeof window === 'undefined' || !window.matchMedia?.('(max-width: 1100px)').matches
 
 export default function Legend() {
+  const theme = useThemeName()
   const [open, setOpen] = useState(startsOpen)
   const mounted = useRef(false)
   useEffect(() => {
@@ -38,7 +40,7 @@ export default function Legend() {
       <div className="legend-edges">
         {EDGE_ORDER.map((k) => (
           <span className="legend-item" key={k} title={EDGE_KINDS[k].help}>
-            <LineSwatch color={EDGE_KINDS[k].color} line={EDGE_KINDS[k].line} width={EDGE_KINDS[k].width} />{EDGE_KINDS[k].label}
+            <LineSwatch color={edgeColor(k, theme)} line={EDGE_KINDS[k].line} width={EDGE_KINDS[k].width} />{EDGE_KINDS[k].label}
           </span>
         ))}
       </div>
