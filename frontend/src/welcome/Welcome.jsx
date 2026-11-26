@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 export const REPO_URL = 'https://github.com/samvit-k/macaronigraph'
 export const RELEASE_ZIP = `${REPO_URL}/releases/latest/download/macaronigraph-extension.zip`
 export const LOCAL_WORKSPACE = 'http://127.0.0.1:8765/workspace/'
-const LOGO = `${import.meta.env.BASE_URL}logo.svg`
+const LOGO = `${import.meta.env.BASE_URL}${__LOGO__}`
 
 const RUN_LOCAL = <>You are viewing this page from it, so it is running. On a new machine, run <code>./scripts/setup.sh</code> once,
   then <code>.venv/bin/uvicorn backend.app:app --port 8765</code> (it listens on 127.0.0.1 only).</>

@@ -18,7 +18,7 @@ export default function TopBar({ model, graphStatus, scope, onScope, status, que
   return (
     <header className="topbar">
       <div className="tb-title">
-        <img className="brand-mark" src="/workspace/logo.svg" alt="" aria-hidden="true" />
+        <img className="brand-mark" src={`${import.meta.env.BASE_URL}${__LOGO__}`} alt="" aria-hidden="true" />
         <span className="tb-name">MacaroniGraph</span>
         <ReelScope label={graphMeta(model, graphStatus)} scope={scope} total={model?.totals?.reels} onScope={onScope}
           disabled={graphStatus === 'offline' || graphStatus === 'loading'} />

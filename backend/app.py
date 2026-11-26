@@ -4,6 +4,7 @@ Run:  .venv/bin/uvicorn backend.app:app --port 8765     (uvicorn binds 127.0.0.1
 """
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import sys
@@ -362,9 +363,16 @@ def workspace_redirect():
 if WORKSPACE_DIR.is_dir():
     app.mount("/workspace", StaticFiles(directory=str(WORKSPACE_DIR), html=True), name="workspace")
 
+def _logo_url() -> str:
+    """Fingerprinted like the frontend build, so a changed logo replaces the cached tab icon."""
+    try:
+        return f"/workspace/logo.svg?v={hashlib.sha256((WORKSPACE_DIR / 'logo.svg').read_bytes()).hexdigest()[:10]}"
+    except OSError:
+        return "/workspace/logo.svg"
+
 @app.get("/", response_class=HTMLResponse)
 def index():
-    return """<!doctype html><title>MacaroniGraph — worker tab</title><link rel="icon" type="image/svg+xml" href="/workspace/logo.svg">
+    return f"""<!doctype html><title>MacaroniGraph — worker tab</title><link rel="icon" type="image/svg+xml" href="{_logo_url()}">
 <body style="font:16px system-ui;max-width:640px;margin:40px auto">
 <h1>MacaroniGraph worker tab</h1>
 <p>This tab is the <b>worker tab</b>. Click the extension icon, choose a source, then <b>Start Processing</b>.
