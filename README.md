@@ -8,6 +8,12 @@ MacaroniGraph turns the Reels you save into searchable passages (transcripts, ca
 them through the concepts they mention, and answers your questions with citations to the original Reels.
 Transcription, text recognition, embeddings, the graph and the AI answers all run locally on a Mac.
 
+![MacaroniGraph project page: extension download, Open Workspace and the three setup steps](.github/assets/project-page.png)
+
+![The MacaroniGraph workspace: the knowledge graph with a cited chat answer highlighted](.github/assets/workspace.png)
+
+*The workspace screenshot uses a small invented demo library (fictional `demo_` creators), not real saved Reels.*
+
 - **Capture:** a Chrome extension plays your saved Reels in a worker tab and records audio and sampled frames.
 - **Extraction:** MLX-Whisper transcribes speech and Tesseract reads on-screen text. Both produce one validated
   record per Reel, stored in SQLite.
@@ -16,7 +22,7 @@ Transcription, text recognition, embeddings, the graph and the AI answers all ru
 - **Knowledge graph:** Neo4j holds Reels, passages and concepts, plus relationships extracted by a local model that
   must quote the passage they come from.
 - **Answers:** hybrid vector-and-graph retrieval feeds a local Qwen3-4B model. Every sentence cites its sources, and
-  listing and count questions are answered by exact search instead of the model.
+  listing and count questions are answered by exact search, with a cited summary from the model above the matches.
 - **Workspace:** a React and Cytoscape app with an interactive graph, an evidence inspector and a chat that
   highlights the cited Reels.
 
