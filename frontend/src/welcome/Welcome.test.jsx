@@ -12,7 +12,6 @@ describe('Welcome', () => {
     render(<Welcome />)
     expect(screen.getByText('Download Extension (.zip)').getAttribute('href')).toBe('/welcome/extension.zip')
     expect(screen.getAllByText('Open Workspace')[0].getAttribute('href')).toBe('/workspace/')
-    expect(screen.queryByText(/must be running/)).toBeNull()
     expect(fetch).toHaveBeenCalledWith('/api/health')
   })
 
@@ -23,8 +22,7 @@ describe('Welcome', () => {
     expect(screen.getByText('Download Extension (.zip)').getAttribute('href')).toBe(RELEASE_ZIP)
     expect(screen.getByText('Open Workspace').getAttribute('href')).toBe(LOCAL_WORKSPACE)
     expect(LOCAL_WORKSPACE).toBe('http://127.0.0.1:8765/workspace/')
-    expect(screen.getByText(/must be running/)).toBeTruthy()
-    expect(screen.getByText('View on GitHub').getAttribute('href')).toBe(REPO_URL)
+    expect(screen.getByText('View On GitHub').getAttribute('href')).toBe(REPO_URL)
     expect(screen.getByText(/Clone the repository/)).toBeTruthy()
     expect(screen.getByText('scripts/service.sh install')).toBeTruthy()
     expect(fetch).not.toHaveBeenCalled()

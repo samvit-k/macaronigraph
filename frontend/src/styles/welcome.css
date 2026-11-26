@@ -32,8 +32,6 @@ code { font-family: var(--mono); font-size: 0.9em; background: var(--bg-sunken);
 .wl-btn.ghost { background: var(--bg-elev); border-color: #d9dbe0; color: var(--text); }
 .wl-btn.ghost:hover { background: var(--bg-sunken); }
 .wl-fine { margin: 16px auto 0; max-width: 560px; font-size: 13px; color: var(--faint); line-height: 1.5; }
-.wl-local { color: var(--muted); }
-.wl-local + .wl-fine { margin-top: 6px; }
 .wl-warn { color: var(--warn); }
 
 .wl-steps { list-style: none; margin: 44px auto 0; padding: 0; max-width: 720px; text-align: left; display: grid; gap: 0;

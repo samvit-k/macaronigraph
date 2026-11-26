@@ -26,7 +26,7 @@ export default function Welcome({ hosted = false }) {
     if (hosted) return
     fetch('/api/health').then((r) => (r.ok ? r.json() : null)).then(setHealth).catch(() => setHealth(false))
   }, [hosted])
-  const nav = hosted ? { href: REPO_URL, label: 'View on GitHub' } : { href: '/workspace/', label: 'Open Workspace' }
+  const nav = hosted ? { href: REPO_URL, label: 'View On GitHub' } : { href: '/workspace/', label: 'Open Workspace' }
   return (
     <div className="wl">
       <div className="wl-grid" aria-hidden="true" />
@@ -46,7 +46,6 @@ export default function Welcome({ hosted = false }) {
           <a className="wl-btn primary" href={hosted ? RELEASE_ZIP : '/welcome/extension.zip'} download>Download Extension (.zip)</a>
           <a className="wl-btn ghost" href={hosted ? LOCAL_WORKSPACE : '/workspace/'}>Open Workspace</a>
         </div>
-        {hosted && <p className="wl-fine wl-local">Open Workspace opens MacaroniGraph on your own Mac, so its backend must be running (step 1).</p>}
         <p className="wl-fine">
           Not on the Chrome Web Store. The extension works only with {hosted ? 'the' : 'this'} local backend, which needs macOS on Apple Silicon.
           {health === false && <span className="wl-warn"> The backend did not answer just now — check that it is still running.</span>}
