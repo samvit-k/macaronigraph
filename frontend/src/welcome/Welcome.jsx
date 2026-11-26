@@ -3,12 +3,14 @@ import { useEffect, useState } from 'react'
 
 export const REPO_URL = 'https://github.com/samvit-k/macaronigraph'
 export const RELEASE_ZIP = `${REPO_URL}/releases/latest/download/macaronigraph-extension.zip`
+export const LOCAL_WORKSPACE = 'http://127.0.0.1:8765/workspace/'
 const LOGO = `${import.meta.env.BASE_URL}logo.svg`
 
 const RUN_LOCAL = <>You are viewing this page from it, so it is running. On a new machine, run <code>./scripts/setup.sh</code> once,
   then <code>.venv/bin/uvicorn backend.app:app --port 8765</code> (it listens on 127.0.0.1 only).</>
-const RUN_HOSTED = <>Clone the repository on a Mac with Apple Silicon, run <code>./scripts/setup.sh</code> once, then
-  <code> .venv/bin/uvicorn backend.app:app --port 8765</code> (it listens on 127.0.0.1 only).</>
+const RUN_HOSTED = <>Clone the repository on a Mac with Apple Silicon and run <code>./scripts/setup.sh</code> once. Start it with
+  <code> .venv/bin/uvicorn backend.app:app --port 8765</code>, or run <code>scripts/service.sh install</code> once to start it
+  at every login (it listens on 127.0.0.1 only).</>
 
 export const steps = (hosted) => [
   { title: 'Run the local backend', body: hosted ? RUN_HOSTED : RUN_LOCAL },
@@ -24,14 +26,14 @@ export default function Welcome({ hosted = false }) {
     if (hosted) return
     fetch('/api/health').then((r) => (r.ok ? r.json() : null)).then(setHealth).catch(() => setHealth(false))
   }, [hosted])
-  const second = hosted ? { href: REPO_URL, label: 'View on GitHub' } : { href: '/workspace/', label: 'Open Workspace' }
+  const nav = hosted ? { href: REPO_URL, label: 'View on GitHub' } : { href: '/workspace/', label: 'Open Workspace' }
   return (
     <div className="wl">
       <div className="wl-grid" aria-hidden="true" />
       <div className="wl-glow" aria-hidden="true" />
       <header className="wl-nav">
         <span className="wl-brand"><img src={LOGO} alt="" aria-hidden="true" />MacaroniGraph</span>
-        <a className="wl-navlink" href={second.href}>{second.label}</a>
+        <a className="wl-navlink" href={nav.href}>{nav.label}</a>
       </header>
       <main className="wl-hero">
         <h1>A <span className="accent">knowledge graph</span> of your saved Reels.</h1>
@@ -42,8 +44,9 @@ export default function Welcome({ hosted = false }) {
         </p>
         <div className="wl-cta">
           <a className="wl-btn primary" href={hosted ? RELEASE_ZIP : '/welcome/extension.zip'} download>Download Extension (.zip)</a>
-          <a className="wl-btn ghost" href={second.href}>{second.label}</a>
+          <a className="wl-btn ghost" href={hosted ? LOCAL_WORKSPACE : '/workspace/'}>Open Workspace</a>
         </div>
+        {hosted && <p className="wl-fine wl-local">Open Workspace opens MacaroniGraph on your own Mac, so its backend must be running (step 1).</p>}
         <p className="wl-fine">
           Not on the Chrome Web Store. The extension works only with {hosted ? 'the' : 'this'} local backend, which needs macOS on Apple Silicon.
           {health === false && <span className="wl-warn"> The backend did not answer just now — check that it is still running.</span>}

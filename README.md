@@ -74,6 +74,17 @@ cd frontend && npm ci && npm run build && cd ..       # builds the workspace int
 ## Usage
 
 1. **Start the backend:** `.venv/bin/uvicorn backend.app:app --port 8765`.
+
+   Or install it as an optional login service (launchd) that starts it at login and restarts it if it crashes:
+
+   ```bash
+   scripts/service.sh install     # stop a backend running in Terminal first; log → output/logs/backend.log
+   scripts/service.sh status
+   scripts/service.sh uninstall
+   ```
+
+   The **Open Workspace** button on the [project page](https://samvit-k.github.io/macaronigraph/) opens
+   `http://127.0.0.1:8765/workspace/` on your own Mac, so it works only while the backend is running.
 2. **Install the extension:**
    1. Open `http://127.0.0.1:8765/welcome` and click **Download Extension (.zip)**, download it from the
       [latest release](https://github.com/samvit-k/macaronigraph/releases/latest), or use the `extension/` folder directly.
@@ -292,7 +303,7 @@ backend/      FastAPI app, capture processing (jobs, worker, transcribe, ocr, re
 extension/    MV3 Chrome extension: background, content and offscreen scripts, popup (ui/)
 frontend/     MacaroniGraph workspace and welcome page (React, Cytoscape, d3-force, Vite) and browser checks (e2e/)
 .github/      workflows: publish the welcome page to GitHub Pages; attach the extension zip to tagged releases
-scripts/      setup, Neo4j installer, environment check, test-media generator, validation, evaluation and integrity tools
+scripts/      setup, Neo4j installer, login service, environment check, test-media generator, validation, evaluation and integrity tools
 fixtures/     synthetic test media and ground truth, frozen retrieval and answer configurations
 tests/        pytest suite (+ tests/ext for the extension)
 ```
