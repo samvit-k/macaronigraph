@@ -1,7 +1,7 @@
 // Conversation state and chat rendering: sending, polling, history and every answer status.
 import { act, cleanup, fireEvent, render, renderHook, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import ChatMessage, { isListing, listingScope } from '../components/assistant/ChatMessage.jsx'
+import ChatMessage, { attribute, isListing, listingScope } from '../components/assistant/ChatMessage.jsx'
 import { mergeTurns, useConversation } from './useConversation.js'
 import { summarizeStatus } from './useStatus.js'
 
@@ -114,6 +114,34 @@ describe('ChatMessage', () => {
     expect(screen.getByText(/Generated Answer · Local Model/)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Cited source S1' }))
     expect(onCite).toHaveBeenCalledWith(expect.objectContaining({ turn_id: 1 }), 'S1')
+  })
+
+  describe('attribution', () => {
+    const t = { citations: [
+      { sid: 'S1', owner: 'remoteree' }, { sid: 'S2', owner: 'ethandojo' }, { sid: 'S3', owner: 'remoteree' },
+      { sid: 'S4', owner: 'a' }, { sid: 'S5', owner: 'b' }, { sid: 'S6' } ] }
+    it.each([
+      ['The Reel says to target AI startups.', ['S1'], '@remoteree says to target AI startups.'],
+      ['The Reels say to learn Docker.', ['S1', 'S2'], '@remoteree and @ethandojo say to learn Docker.'],
+      ['The Reel says Python is easy.', ['S1', 'S2'], '@remoteree and @ethandojo say Python is easy.'],
+      ['The Reels describe Docker as a tool.', ['S1', 'S3'], '@remoteree describes Docker as a tool.'],
+      ['The Reel also recommends NeetCode.', ['S2'], '@ethandojo also recommends NeetCode.'],
+      ['The Reels are clear.', ['S2'], '@ethandojo is clear.'],
+      ['The Reel stresses projects.', ['S1', 'S2'], '@remoteree and @ethandojo stress projects.'],
+      ['According to the Reel, salaries rose.', ['S2'], 'According to @ethandojo, salaries rose.'],
+      ['The Reel says X.', ['S1', 'S2', 'S4', 'S5'], 'Several creators say X.'],
+      ['The Reel says X.', ['S1', 'S6'], 'The Reel says X.'],
+      ['The Reel walks through X.', ['S1'], 'The Reel walks through X.'],
+      ['Docker is used widely.', ['S1'], 'Docker is used widely.'],
+    ])('%s', (text, sids, want) => expect(attribute(text, sids, t)).toBe(want))
+  })
+
+  it('names the cited creator in generated answers', () => {
+    const t = turn({ answer: { ...turn().answer, sentences: [{ text: 'The Reel says to build projects.', citations: ['S1'] }] },
+      citations: [{ sid: 'S1', reel_id: 'R1', owner: 'demo.chef', content_type: 'transcript' }] })
+    render(<ChatMessage turn={t} onCite={noop} onHighlight={noop} onClarify={noop} />)
+    expect(screen.getByText(/@demo\.chef says to build projects\./)).toBeTruthy()
+    expect(screen.queryByText(/The Reel says/)).toBeNull()
   })
 
   it('shows the partial-answer note', () => {

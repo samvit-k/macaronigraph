@@ -30,9 +30,42 @@ function CiteChip({ sid, turn, onCite }) {
 
 const clean = (t) => (t ?? '').replace(CITE, '').replace(/\s+([.,;:!?])/g, '$1').trim()
 
+const VERBS = new Set(('say says recommend recommends suggest suggests mention mentions note notes explain explains describe describes '
+  + 'advise advises emphasize emphasizes highlight highlights state states claim claims argue argues list lists warn warns '
+  + 'encourage encourages stress stresses add adds point points show shows use uses present presents compare compares '
+  + 'outline outlines share shares define defines is are does do has have').split(' '))
+const IRREGULAR = { is: 'are', does: 'do', has: 'have' }
+const LEAD = /^(the reels?)(\s+also)?\s+([a-z]+)\b/i
+const ACCORDING = /^according to the reels?,/i
+
+const plural = (v) => IRREGULAR[v] ?? (/(ss|sh|ch|x)es$/.test(v) ? v.slice(0, -2) : v.endsWith('s') ? v.slice(0, -1) : v)
+const singular = (v) => Object.keys(IRREGULAR).find((k) => IRREGULAR[k] === v)
+  ?? (v.endsWith('s') ? v : /(ss|sh|ch|x)$/.test(v) ? `${v}es` : `${v}s`)
+
+export function creators(sids, turn) {
+  const map = citationMap(turn)
+  const cited = (sids ?? []).map((sid) => map[sid])
+  if (cited.length === 0 || cited.some((c) => !c?.owner)) return null
+  const owners = [...new Set(cited.map((c) => c.owner))]
+  if (owners.length > 3) return { name: 'Several creators', many: true }
+  const at = owners.map((o) => `@${o}`)
+  return { name: at.length === 1 ? at[0] : `${at.slice(0, -1).join(', ')} and ${at[at.length - 1]}`, many: at.length > 1 }
+}
+
+export function attribute(text, sids, turn) {
+  const who = creators(sids, turn)
+  if (!who || !text) return text
+  if (ACCORDING.test(text)) return text.replace(ACCORDING, `According to ${who.name},`)
+  const m = text.match(LEAD)
+  if (!m) return text
+  const verb = m[3].toLowerCase()
+  if (!VERBS.has(verb)) return text
+  return `${who.name}${m[2] ?? ''} ${who.many ? plural(verb) : singular(verb)}${text.slice(m[0].length)}`
+}
+
 function Sentence({ s, turn, onCite }) {
   return (
-    <span className="sent">{clean(s.text)}{' '}
+    <span className="sent">{attribute(clean(s.text), s.citations, turn)}{' '}
       {(s.citations ?? []).map((sid) => <CiteChip key={sid} sid={sid} turn={turn} onCite={onCite} />)}{' '}</span>
   )
 }
